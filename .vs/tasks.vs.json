@@ -1,0 +1,15 @@
+{
+  "version": "0.2.1",
+  "tasks": [
+    {
+      "taskName": "任务-CMakeLists",
+      "appliesTo": "CMakeLists.txt",
+      "type": "launch"
+    },
+    {
+      "taskName": "任务-otter_player",
+      "appliesTo": "/",
+      "type": "launch"
+    }
+  ]
+}

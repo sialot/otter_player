@@ -2,19 +2,35 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// 全局pat表
+static TS_PAT PAT = { sizeof(TS_PAT),0 };
+
+// pat数据包数据buffer
+static unsigned char *pat_loop_data_buffer;
+
 // 输入ts包数据
-int ireceive_ts_packet(unsigned char * pTsBuf)
+int receive_ts_packet(unsigned char * pTsBuf)
 {
-
-	TS_HEADER *pHeader = malloc(sizeof(TS_HEADER));
-
-	if (read_ts_head(pTsBuf, pHeader) != 0) {
+	TS_HEADER header = { sizeof(TS_HEADER),0 };
+	if (read_ts_head(pTsBuf, &header) != 0) 
+	{
 		return -1;
 	}
 
-	printf("PID %d\n", pHeader->PID);
-	printf("continuity_counter %d\n", pHeader->continuity_counter);
-	free(pHeader);
+	printf("PID %d\n", header.PID);
+	printf("continuity_counter %d\n", header.continuity_counter);
+
+	// 获取适配域
+	if (read_adaption_field(pTsBuf, &header) != 0) 
+	{
+		return -1;
+	}
+
+	// 解析净荷
+	if (read_payload(pTsBuf, &header) != 0) 
+	{
+		return -1;
+	}
 
 	return 0;
 }
@@ -23,7 +39,8 @@ int ireceive_ts_packet(unsigned char * pTsBuf)
 int read_ts_head(unsigned char * pTsBuf, TS_HEADER * pHeader)
 {
 	pHeader->sync_byte = pTsBuf[0];
-	if (pHeader->sync_byte != 0x47) {
+	if (pHeader->sync_byte != 0x47) 
+	{
 		printf("sync_byte != 0x47\n");
 		return -1;
 	}
@@ -38,7 +55,47 @@ int read_ts_head(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	return 0;
 }
 
-void test_icld()
+// 读取适配域
+int read_adaption_field(unsigned char * pTsBuf, TS_HEADER * pHeader)
 {
-	printf("ts_demuxer !");
+	if (pHeader->adaptation_field_control == 0x2 ||
+		pHeader->adaptation_field_control == 0x3) 
+	{
+		pHeader->adpataion_field_length = pTsBuf[4];
+	}
+	return 0;
+}
+// 读取有效载荷
+int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
+{
+	// 看是否为PAT信息
+	if (pHeader->PID == 0x0) 
+	{
+		read_ts_PAT(pTsBuf, pHeader);
+	}
+
+	return 0;
+}
+
+// 解析PAT
+int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
+{
+	int start = 4;
+	int adpataion_field_length = pTsBuf[4];
+
+	// 同时又负载和适配域
+	if (pHeader->adaptation_field_control == 0x3)
+	{
+		start = start + 1 + pHeader->adaptation_field_control;
+	}
+
+	// 有效载荷开始的位置应再偏移1+[length]个字节。
+	if (pHeader->payload_unit_start_indicator == 0x01)
+	{
+		start = start + 1 + pTsBuf[start];
+	}
+
+	unsigned char *pPatBuf = pTsBuf + start;
+
+	// todo
 }

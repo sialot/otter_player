@@ -1,4 +1,7 @@
 ﻿#pragma once
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 // ts 头
 typedef struct TS_HEADER
@@ -39,20 +42,23 @@ typedef struct TS_PAT
 	unsigned networkPID                      : 16; // 网络PID
 	unsigned CRC                             : 32; // CRC校验码
 	unsigned program_len                     : 8; // 节目数量
-	TS_PAT_PROGRAM programs[];
+	TS_PAT_PROGRAM *pPrograms;
 } TS_PAT;
 
 // 输入ts包数据
 int receive_ts_packet(unsigned char *pTsBuf);
 
 // 读取ts包头
-int read_ts_head(unsigned char *pTsBuf,TS_HEADER *pHeader);
+static int read_ts_head(unsigned char *pTsBuf, TS_HEADER *pHeader);
 
 // 读取适配域
-int read_adaption_field(unsigned char *pTsBuf, TS_HEADER *pHeader);
+static int read_adaption_field(unsigned char *pTsBuf, TS_HEADER *pHeader);
 
 // 读取有效载荷
-int read_payload(unsigned char *pTsBuf, TS_HEADER *pHeader);
+static int read_payload(unsigned char *pTsBuf, TS_HEADER *pHeader);
 
 // 解析PAT
-int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader);
+static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader);
+
+// 提交pat表
+static int ts_pat_submit(TS_PAT pat);

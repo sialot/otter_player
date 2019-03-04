@@ -8,3 +8,4 @@
 #include "ts_demuxer.h"
 
 int fileRead(char *filePath);
+void test_add();

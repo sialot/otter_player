@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "byte_list.h"
 
 // ts 头
 typedef struct TS_HEADER
@@ -41,9 +42,21 @@ typedef struct TS_PAT
 	unsigned last_section_number             : 8; // 最后一个分段的号码
 	unsigned networkPID                      : 16; // 网络PID
 	unsigned CRC                             : 32; // CRC校验码
-	unsigned program_len                     : 8; // 节目数量
+	int program_len                     : 8; // 节目数量
 	TS_PAT_PROGRAM *pPrograms;
 } TS_PAT;
+
+
+// pem表
+typedef struct TS_PEM
+{
+	unsigned table_id : 8; // PAT表固定为0x00
+	unsigned section_syntax_indicator : 1; // 段语法标志位，固定为1
+	unsigned zero : 1; // 固定为0
+	unsigned reserved1 : 2; //  保留字段，固定为11
+	unsigned section_length : 12; // 表示这个字节后面数据的长度,包括 CRC信息
+	// TODO
+} TS_PEM;
 
 // 输入ts包数据
 int receive_ts_packet(unsigned char *pTsBuf);
@@ -62,3 +75,9 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader);
 
 // 提交pat表
 static int ts_pat_submit(TS_PAT pat);
+
+// 解析PEM
+static int read_ts_PEM(unsigned char * pTsBuf, TS_HEADER * pHeader);
+
+// 提交pem表
+static int ts_pem_submit(TS_PEM pat);

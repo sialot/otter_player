@@ -1,11 +1,14 @@
 ﻿#include "ts_demuxer.h"
-#include "byte_list.h"
 
-// 全局pat表 TODO
+// 全局PAT表
 static TS_PAT *global_pat = NULL;
 
 // pat数据包数据buffer
 static BYTE_LIST *pat_loop_data_buffer = NULL;
+
+// 节目表临时存储
+static int temp_programs_length = 0;
+static TS_PAT_PROGRAM *temp_programs = NULL;
 
 // 节目号
 static int current_program_num = -1;
@@ -184,9 +187,33 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			printf("pat parse error!pat.loopData.length");
 			return -1;
 		}
-		
-		tempPat.program_len = pat_loop_data_buffer->len / 4;			
-		tempPat.pPrograms = (TS_PAT_PROGRAM *)malloc(sizeof(TS_PAT_PROGRAM) * tempPat.program_len);
+
+		tempPat.program_len = pat_loop_data_buffer->len / 4;
+
+		// 当临时空间不够时申请空间或者扩容，否则直接覆盖临时空间
+		if(tempPat.program_len > temp_programs_length)
+		{
+			if (temp_programs != NULL) 
+			{
+				TS_PAT_PROGRAM * pProgramsNew = realloc(temp_programs, sizeof(TS_PAT_PROGRAM) * tempPat.program_len);
+				if (pProgramsNew == NULL)
+				{
+					free(temp_programs);
+					temp_programs = NULL;
+					return -1;
+				}
+				temp_programs = pProgramsNew;
+			}
+			else
+			{
+				temp_programs = (TS_PAT_PROGRAM *)malloc(sizeof(TS_PAT_PROGRAM) * tempPat.program_len);
+				if (temp_programs == NULL)
+				{
+					return -1;
+				}
+			}			
+		}
+		tempPat.pPrograms = temp_programs;
 
 		for (int i = 0; i < pat_loop_data_buffer->len; i += 4)
 		{
@@ -218,7 +245,6 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	if ((current_program_num == -1) && (global_pat->program_len == 1)) {
 		current_program_num = global_pat->pPrograms[0].program_number;
 	}
-
 
 	// TESTS
 	for (int i = 0; i < global_pat->program_len; i++) {
@@ -289,8 +315,17 @@ static int ts_pat_submit(TS_PAT pat)
 	global_pat->program_len = pat.program_len;
 
 	memcpy(global_pat->pPrograms, pat.pPrograms, sizeof(TS_PAT_PROGRAM) * pat.program_len);
+	return 0;
+}
 
-	free(pat.pPrograms);
-	pat.pPrograms = NULL;
+// 解析PEM
+int read_ts_PEM(unsigned char * pTsBuf, TS_HEADER * pHeader)
+{
+	return 0;
+}
+
+// 提交pem表
+int ts_pem_submit(TS_PEM pat)
+{
 	return 0;
 }

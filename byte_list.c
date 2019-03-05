@@ -60,6 +60,14 @@ int byte_list_add_list(BYTE_LIST *bl, unsigned char *bytes, int size)
 	return 0;
 }
 
+int byte_list_clean(BYTE_LIST * bl)
+{
+	int size = bl->free + bl->len;
+	bl->free = size;
+	bl->len = 0;
+	return 0;
+}
+
 int byte_list_free(BYTE_LIST *bl)
 {
 	free(bl->pBytes);

@@ -42,21 +42,44 @@ typedef struct TS_PAT
 	unsigned last_section_number             : 8; // 最后一个分段的号码
 	unsigned networkPID                      : 16; // 网络PID
 	unsigned CRC                             : 32; // CRC校验码
-	int program_len                     : 8; // 节目数量
+	int program_count                          : 8; // 节目数量
 	TS_PAT_PROGRAM *pPrograms;
 } TS_PAT;
 
+typedef struct TS_PMT_STREAM
+{
+	unsigned stream_type : 8; //流类型  h.264编码对应0x1b;aac编码对应0x0f;mp3编码对应0x03
+	unsigned reserved1 : 3; //保留字段，固定为111
+	unsigned elementary_PID : 13; // 元素PID,与stream_type对应的PID
+	unsigned reserved2 : 4; // 保留字段，固定为1111
+	unsigned ES_info_length : 12; //  描述信息，指定为0x000表示没有
+	unsigned char *pEsInfoBytes;
+} TS_PMT_STREAM;
 
 // pem表
-typedef struct TS_PEM
+typedef struct TS_PMT
 {
-	unsigned table_id : 8; // PAT表固定为0x00
-	unsigned section_syntax_indicator : 1; // 段语法标志位，固定为1
-	unsigned zero : 1; // 固定为0
-	unsigned reserved1 : 2; //  保留字段，固定为11
-	unsigned section_length : 12; // 表示这个字节后面数据的长度,包括 CRC信息
-	// TODO
-} TS_PEM;
+	unsigned table_id                       : 8; // PAT表固定为0x00
+	unsigned section_syntax_indicator       : 1; // 段语法标志位，固定为1
+	unsigned zero                           : 1; // 固定为0
+	unsigned reserved1                      : 2; //  保留字段，固定为11
+	unsigned section_length                 : 12; // 表示这个字节后面数据的长度,包括 CRC信息
+	unsigned program_number                 : 16; // 频道号码，表示当前的PMT关联到的频道，取值0x0001
+	unsigned reserved2                      : 2; // 保留字段，固定为11
+	unsigned version_number                 : 5; // 版本号，固定为00000，如果PAT有变化则版本号加1
+	unsigned current_next_indicator         : 1; // 是否有效
+	unsigned section_number                 : 8; // 分段号码
+	unsigned last_section_number            : 8; //最后一个分段的号码
+	unsigned reserved3                      : 3; // 保留字段，固定为111
+	unsigned PCR_PID                        : 13; // PCR(节目参考时钟)所在TS分组的PID，指定为视频PID
+	unsigned reserved4                      : 4; // 保留字段固定为 1111
+	unsigned program_info_length            : 12; // 节目描述信息，指定为0x000表示没有
+	unsigned char *pProgramInfoBytes;
+	unsigned CRC                            : 32; // CRC校验码
+	int stream_count                   : 8;
+	TS_PMT_STREAM *pStreams;
+} TS_PMT;
+
 
 // 输入ts包数据
 int receive_ts_packet(unsigned char *pTsBuf);
@@ -76,8 +99,8 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader);
 // 提交pat表
 static int ts_pat_submit(TS_PAT pat);
 
-// 解析PEM
-static int read_ts_PEM(unsigned char * pTsBuf, TS_HEADER * pHeader);
+// 解析PMT
+static int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader);
 
-// 提交pem表
-static int ts_pem_submit(TS_PEM pat);
+// 提交pmt表
+static int ts_pmt_submit(TS_PMT pat);

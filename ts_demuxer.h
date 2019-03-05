@@ -80,9 +80,53 @@ typedef struct TS_PMT
 	TS_PMT_STREAM *pStreams;
 } TS_PMT;
 
+typedef struct TS_PES_PACKET
+{
+	unsigned pes_start_code_prefix         :24; // 起始码，固定必须是'0000 0000 0000 0000 0000 0001' (0x000001)。用于标识包的开始。
+	unsigned stream_id                     :8; // 流ID
+	unsigned PES_packet_length             :16;// PES包的长度
+	unsigned twobit_10                     :2; // 固定两位分割bit 0x2
+	unsigned PES_scrambling_control        :2; // 字段指示 PES 包有效载荷的加扰方式; PES 包头，其中包括任选字段只要存在，应不加扰。00 不加扰
+	unsigned PES_priority                  :1; // 指示在此 PES 包中该有效载荷的优先级。
+	unsigned data_alignment_indicator      :1; // 数据校准标志
+	unsigned copyright                     :1; // 版权保护标志
+	unsigned original_or_copy              :1; //是否为复制
+	unsigned PTS_DTS_flags                 :2; // PTS(presentation time stamp 显示时间标签),DTS(decoding time stamp 解码时间标签)标志位
+	unsigned ESCR_flag                     :1; // 置于‘1’时指示 PES 包头中 ESCR 基准字段和 ESCR 扩展字段均存在。
+	unsigned ES_rate_flag                  :1; // 置于‘1’时指示 PES 包头中 ES_rate 字段存在。
+	unsigned DSM_trick_mode_flag           :1; // 特技方式
+	unsigned additional_copy_info_flag     :1; // 置于‘1’时指示 additional_copy_info 存在。
+	unsigned PES_CRC_flag                  :1; //置于‘1’时指示 PES 包中 CRC 字段存在。
+	unsigned PES_extension_flag            :1; // 置于‘1’时指示 PES 包头中扩展字段存在。置于‘0’时指示此字段不存在
+	unsigned PES_header_data_length        :8; // 指示在此PES包头中包含的由任选字段和任意填充字节所占据的字节总数。
+	unsigned long long PTS                 :33; //PTS(presentation time stamp 显示时间标签)
+	unsigned long long DTS                 :33; //DTS(decoding time stamp 解码时间标签)标志位
+	unsigned long long ESCR_base           :33; //基本流时钟参考
+	unsigned ESCR_extension                :9; //基本流时钟参考
+	unsigned ES_rate                       :22; //  ES 速率（基本流速率）
+	unsigned trick_mode_control            :3; // 3 比特字段，指示适用于相关视频流的特技方式
+	unsigned field_id                      :2; //  2 比特字段，指示哪些字段应予显示
+	unsigned intra_slice_refresh           :1; // 1 比特标志，置于‘1’时指示此 PES 包中视频数据的编码截面间可能存在丢失宏块
+	unsigned frequency_truncation          :2; // 指示在此 PES 包中编码视频数据时曾经使用的受限系数集
+	unsigned rep_cntrl                     :5; // 指示交错图像中每个字段应予显示的次数，或者连续图像应予显示的次数
+	unsigned additional_copy_info          :7; //  此 7 比特字段包含与版权信息有关的专用数据
+	unsigned previous_PES_packet_CRC       :16; //  包含产生解码器中 16 寄存器零输出的 CRC 值
+	unsigned char * pEsData; // es 流数据
+	int es_data_len;
+	int pay_load_len;
+} TS_PES_PACKET;
+
+// PES 数据缓存
+typedef struct TS_PES_PACKET_BUFFER
+{
+	unsigned PID                :13; // PID
+	unsigned PES_packet_length  :16; // pes_packet_length值
+	BYTE_LIST *pByteList;
+} TS_PES_PACKET_BUFFER;
 
 // 输入ts包数据
 int receive_ts_packet(unsigned char *pTsBuf);
+int receive_ts_packet_by_program_num(unsigned char *pTsBuf, int program_num);
 
 // 读取ts包头
 static int read_ts_head(unsigned char *pTsBuf, TS_HEADER *pHeader);
@@ -104,3 +148,9 @@ static int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader);
 
 // 提交pmt表
 static int ts_pmt_submit(TS_PMT pat);
+
+// 输入pes载荷
+static int receive_pes_payload(unsigned char * pPesBuf, TS_HEADER * pHeader);
+
+// 解析pes包
+static int read_pes(unsigned char * pPesBuf);

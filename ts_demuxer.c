@@ -2,21 +2,25 @@
 
 // 全局表
 static TS_PAT *GLOBAL_PAT = NULL;
-static TS_PMT *GLOBAL_PMT = NULL;
+static TS_PMT *GLOBAL_PMT = NULL; // 当前节目
+
+// 全局当前节目号
+static int CUR_PROGRAM_NUM = -1;
 
 // pat数据包数据buffer
-static BYTE_LIST *pat_loop_data_buffer = NULL;
-static int temp_programs_count = 0;
-static TS_PAT_PROGRAM *temp_programs = NULL;
+static BYTE_LIST *pat_loop_data_buffer = NULL; // 包loop数据
+static int temp_programs_count = 0; // 全局节目数
+static TS_PAT_PROGRAM *temp_programs = NULL; // 全局节目数组指针
 
-// pmt数据包数据buffer
-static BYTE_LIST *pmt_loop_data_buffer = NULL;
-static BYTE_LIST *pmt_program_info_buffer = NULL;
-static int temp_streams_count = 0;
-static TS_PMT_STREAM *temp_streams = NULL;
+// pmt数据包数据buffer（当前节目）
+static BYTE_LIST *pmt_loop_data_buffer = NULL; // 包loop数据
+static BYTE_LIST *pmt_program_info_buffer = NULL; // program_info数据
+static int temp_streams_count = 0; // 全局流总数
+static TS_PMT_STREAM *temp_streams = NULL; // 全局流数组指针
 
-// 节目号
-static int current_program_num = -1;
+// pes数据包buffer
+static int temp_pes_packet_buffer_count = 0;
+static TS_PES_PACKET_BUFFER *temp_pes_packet_buffer = NULL;
 
 // 输入ts包数据
 int receive_ts_packet(unsigned char * pTsBuf)
@@ -42,6 +46,13 @@ int receive_ts_packet(unsigned char * pTsBuf)
 		return -1;
 	}
 
+	return 0;
+}
+
+int receive_ts_packet_by_program_num(unsigned char * pTsBuf, int program_num)
+{
+	CUR_PROGRAM_NUM = program_num;
+	receive_ts_packet(pTsBuf);
 	return 0;
 }
 
@@ -95,6 +106,13 @@ static int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		if (GLOBAL_PAT->pPrograms[i].PID == pHeader->PID) {
 			read_ts_PMT(pTsBuf, pHeader);
 			break;
+		}
+	}
+
+	// 看是否为PES信息
+	for (int j = 0; j < GLOBAL_PMT->stream_count; j++) {
+		if (GLOBAL_PMT->pStreams[j].elementary_PID == pHeader->PID) {
+			receive_pes_payload(pTsBuf, pHeader);
 		}
 	}
 
@@ -260,11 +278,11 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 
 	ts_pat_submit(tempPat);
 
-	if ((current_program_num == -1) && (GLOBAL_PAT->program_count == 1)) {
-		current_program_num = GLOBAL_PAT->pPrograms[0].program_number;
+	if ((CUR_PROGRAM_NUM == -1) && (GLOBAL_PAT->program_count > 1)) {
+		CUR_PROGRAM_NUM = GLOBAL_PAT->pPrograms[0].program_number;
 	}
 
-	// TESTS
+	/* TESTS
 	for (int i = 0; i < GLOBAL_PAT->program_count; i++) {
 		
 		printf("program_number:%d,reserved:%d,PID:%d\n",
@@ -272,7 +290,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			GLOBAL_PAT->pPrograms[i].reserved,
 			GLOBAL_PAT->pPrograms[i].PID);
 	
-	}
+	}*/
 	return 0;
 }
 
@@ -372,6 +390,12 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	tempPmt.PCR_PID = ((payload[8] & 0x1f) << 8) | payload[9];
 	tempPmt.reserved4 = payload[10] >> 4 & 0xf;
 	tempPmt.program_info_length = ((payload[10] & 0xf) << 8) | payload[11];
+
+	// 不是当前节目的pmt包，舍弃
+	if (CUR_PROGRAM_NUM != tempPmt.program_number)
+	{
+		return 0;
+	}
 
 	// current_next_indicator 当前包无效
 	if (tempPmt.current_next_indicator != 0x1)
@@ -516,14 +540,14 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	}
 	ts_pmt_submit(tempPmt);
 
-	// TESTS
+	/* TESTS
 	for (int i = 0; i < GLOBAL_PMT->stream_count; i++) {
 
 		printf("stream_type:%d,elementary_PID:%d,ES_info_length:%d\n",
 			GLOBAL_PMT->pStreams[i].stream_type,
 			GLOBAL_PMT->pStreams[i].elementary_PID,
 			GLOBAL_PMT->pStreams[i].ES_info_length);
-	}
+	}*/
 
 	return 0;
 }
@@ -587,5 +611,38 @@ int ts_pmt_submit(TS_PMT pmt)
 	GLOBAL_PMT->stream_count = pmt.stream_count;
 
 	memcpy(GLOBAL_PMT->pStreams, pmt.pStreams, sizeof(TS_PMT_STREAM) * pmt.stream_count);
+	return 0;
+}
+
+// 输入pes载荷
+int receive_pes_payload(unsigned char * pPesBuf, TS_HEADER * pHeader)
+{
+	int start = 4;
+	int adpataion_field_length = pPesBuf[4];
+	if (pHeader->adaptation_field_control == 0x3)
+	{
+		start = start + 1 + pHeader->adaptation_field_control;
+	}
+	unsigned char *payload = pPesBuf + start;
+	
+	// ts包中含有新pes包头
+	if (pHeader->payload_unit_start_indicator == 0x1) {
+
+
+	}
+	else {
+
+	}
+
+
+
+
+	return 0;
+}
+
+// 解析pes包
+int read_pes(unsigned char * pPesBuf)
+{
+
 	return 0;
 }

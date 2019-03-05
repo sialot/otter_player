@@ -116,14 +116,6 @@ typedef struct TS_PES_PACKET
 	int pay_load_len;
 } TS_PES_PACKET;
 
-// PES 数据缓存
-typedef struct TS_PES_PACKET_BUFFER
-{
-	unsigned PID                :13; // PID
-	unsigned PES_packet_length  :16; // pes_packet_length值
-	BYTE_LIST *pByteList;
-} TS_PES_PACKET_BUFFER;
-
 // 输入ts包数据
 int receive_ts_packet(unsigned char *pTsBuf);
 int receive_ts_packet_by_program_num(unsigned char *pTsBuf, int program_num);
@@ -154,3 +146,11 @@ static int receive_pes_payload(unsigned char * pPesBuf, TS_HEADER * pHeader);
 
 // 解析pes包
 static int read_pes(unsigned char * pPesBuf);
+
+// PES 数据缓存
+typedef struct PES_BUFFER
+{
+	unsigned PID : 13; // PID
+	unsigned PES_packet_length : 16; // pes_packet_length值
+	BYTE_LIST *pByteList;
+} PES_BUFFER;

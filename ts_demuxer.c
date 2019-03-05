@@ -7,20 +7,16 @@ static TS_PMT *GLOBAL_PMT = NULL; // 当前节目
 // 全局当前节目号
 static int CUR_PROGRAM_NUM = -1;
 
-// pat数据包数据buffer
+// 数据buffer
 static BYTE_LIST *pat_loop_data_buffer = NULL; // 包loop数据
-static int temp_programs_count = 0; // 全局节目数
-static TS_PAT_PROGRAM *temp_programs = NULL; // 全局节目数组指针
-
-// pmt数据包数据buffer（当前节目）
 static BYTE_LIST *pmt_loop_data_buffer = NULL; // 包loop数据
 static BYTE_LIST *pmt_program_info_buffer = NULL; // program_info数据
+
+// 临时program stream列表
+static int temp_programs_count = 0; // 全局节目数
+static TS_PAT_PROGRAM *temp_programs = NULL; // 全局节目数组指针
 static int temp_streams_count = 0; // 全局流总数
 static TS_PMT_STREAM *temp_streams = NULL; // 全局流数组指针
-
-// pes数据包buffer
-static int temp_pes_packet_buffer_count = 0;
-static TS_PES_PACKET_BUFFER *temp_pes_packet_buffer = NULL;
 
 // 输入ts包数据
 int receive_ts_packet(unsigned char * pTsBuf)
@@ -89,10 +85,12 @@ static int read_adaption_field(unsigned char * pTsBuf, TS_HEADER * pHeader)
 // 读取有效载荷
 static int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 {
+	int rs = -1;
+
 	// 看是否为PAT信息
 	if (pHeader->PID == 0x0)
 	{
-		read_ts_PAT(pTsBuf, pHeader);
+		rs = read_ts_PAT(pTsBuf, pHeader);
 	}
 
 	// 是否为 BAT/SDT 信息
@@ -104,7 +102,7 @@ static int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	//  看是否为PMT信息
 	for (int i = 0; i < GLOBAL_PAT->program_count; i++) {
 		if (GLOBAL_PAT->pPrograms[i].PID == pHeader->PID) {
-			read_ts_PMT(pTsBuf, pHeader);
+			rs = read_ts_PMT(pTsBuf, pHeader);
 			break;
 		}
 	}
@@ -112,11 +110,11 @@ static int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	// 看是否为PES信息
 	for (int j = 0; j < GLOBAL_PMT->stream_count; j++) {
 		if (GLOBAL_PMT->pStreams[j].elementary_PID == pHeader->PID) {
-			receive_pes_payload(pTsBuf, pHeader);
+			rs = receive_pes_payload(pTsBuf, pHeader);
 		}
 	}
 
-	return 0;
+	return rs;
 }
 
 // 解析PAT
@@ -645,4 +643,4 @@ int read_pes(unsigned char * pPesBuf)
 {
 
 	return 0;
-}
+}\

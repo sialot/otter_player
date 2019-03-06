@@ -100,17 +100,23 @@ static int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	}
 
 	//  看是否为PMT信息
-	for (int i = 0; i < GLOBAL_PAT->program_count; i++) {
-		if (GLOBAL_PAT->pPrograms[i].PID == pHeader->PID) {
-			rs = read_ts_PMT(pTsBuf, pHeader);
-			break;
+	if (GLOBAL_PMT != NULL)
+	{
+		for (int i = 0; i < GLOBAL_PAT->program_count; i++) {
+			if (GLOBAL_PAT->pPrograms[i].PID == pHeader->PID) {
+				rs = read_ts_PMT(pTsBuf, pHeader);
+				break;
+			}
 		}
 	}
 
 	// 看是否为PES信息
-	for (int j = 0; j < GLOBAL_PMT->stream_count; j++) {
-		if (GLOBAL_PMT->pStreams[j].elementary_PID == pHeader->PID) {
-			rs = receive_pes_payload(pTsBuf, pHeader);
+	if (GLOBAL_PMT != NULL)
+	{
+		for (int j = 0; j < GLOBAL_PMT->stream_count; j++) {
+			if (GLOBAL_PMT->pStreams[j].elementary_PID == pHeader->PID) {
+				rs = receive_pes_payload(pTsBuf, pHeader);
+			}
 		}
 	}
 
@@ -280,7 +286,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		CUR_PROGRAM_NUM = GLOBAL_PAT->pPrograms[0].program_number;
 	}
 
-	/* TESTS
+	/* TESTS*/
 	for (int i = 0; i < GLOBAL_PAT->program_count; i++) {
 		
 		printf("program_number:%d,reserved:%d,PID:%d\n",
@@ -288,7 +294,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			GLOBAL_PAT->pPrograms[i].reserved,
 			GLOBAL_PAT->pPrograms[i].PID);
 	
-	}*/
+	}
 	return 0;
 }
 

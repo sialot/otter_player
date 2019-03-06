@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "byte_list.h"
+#include "buffer_map.h"
 
 // ts 头
 typedef struct TS_HEADER

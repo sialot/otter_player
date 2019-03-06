@@ -42,7 +42,7 @@ int main()
 	byte_list_print(buffer_map_get(map,21));*/
 	
 	//buffer_map_free(map);
-	//fileRead("C:\\1.ts"); 
+	fileRead("C:\\1.ts"); 
 	system("pause");
 	return 0;
 }

@@ -74,3 +74,11 @@ int byte_list_free(BYTE_LIST *bl)
 	free(bl);
 	return 0;
 }
+
+void byte_list_print(BYTE_LIST *bl)
+{
+	for (int i = 0; i < bl->len; i++)
+	{
+		printf("BYTE_LIST [%d] : %d(%#X) \n", i, bl->pBytes[i], bl->pBytes[i]);
+	}
+}

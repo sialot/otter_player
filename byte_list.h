@@ -14,3 +14,4 @@ int byte_list_add(BYTE_LIST *bl, unsigned char byte);
 int byte_list_add_list(BYTE_LIST *bl, unsigned char *bytes, int size);
 int byte_list_clean(BYTE_LIST *bl);
 int byte_list_free(BYTE_LIST *bl);
+void byte_list_print(BYTE_LIST *bl);

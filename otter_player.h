@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <libavcodec/avcodec.h>
 #include "ts_demuxer.h"
 
 int fileRead(char *filePath);

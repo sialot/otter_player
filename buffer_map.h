@@ -1,5 +1,6 @@
 #pragma once
 #include "byte_list.h"
+
 typedef struct BUFFER_MAP_ENTRY
 {
 	struct BUFFER_MAP_ENTRY *next;

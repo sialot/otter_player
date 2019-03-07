@@ -16,7 +16,7 @@ typedef struct TS_HEADER
 	unsigned transport_scrambling_control    : 2; // 加扰控制标志：表示TS流分组有效负载的加密模式。空包为‘00’
 	unsigned adaptation_field_control        : 2; // 适配域控制标志‘00’为ISO/IEC未来使用保留；
 	unsigned continuity_counter              : 4; // 连续性计数器
-	unsigned adpataion_field_length          : 8; // 适配域长度
+	unsigned adaptaion_field_length          : 8; // 适配域长度
 } TS_HEADER;
 
 // pat 节目 
@@ -43,7 +43,7 @@ typedef struct TS_PAT
 	unsigned last_section_number             : 8; // 最后一个分段的号码
 	unsigned networkPID                      : 16; // 网络PID
 	unsigned CRC                             : 32; // CRC校验码
-	int program_count                          : 8; // 节目数量
+    int program_count                          : 8; // 节目数量
 	TS_PAT_PROGRAM *pPrograms;
 } TS_PAT;
 
@@ -143,15 +143,7 @@ static int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader);
 static int ts_pmt_submit(TS_PMT pat);
 
 // 输入pes载荷
-static int receive_pes_payload(unsigned char * pPesBuf, TS_HEADER * pHeader);
+static int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader);
 
 // 解析pes包
-static int read_pes(unsigned char * pPesBuf);
-
-// PES 数据缓存
-typedef struct PES_BUFFER
-{
-	unsigned PID : 13; // PID
-	unsigned PES_packet_length : 16; // pes_packet_length值
-	BYTE_LIST *pByteList;
-} PES_BUFFER;
+static TS_PES_PACKET *  read_pes(BYTE_LIST * pPesByteList);

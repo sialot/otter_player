@@ -1,5 +1,7 @@
 ﻿#include "ts_demuxer.h"
 
+static const TS_PKT_LEN = 188;
+
 // 全局表
 static TS_PAT *GLOBAL_PAT = NULL;
 static TS_PMT *GLOBAL_PMT = NULL; // 当前节目
@@ -25,8 +27,7 @@ int receive_ts_packet(unsigned char * pTsBuf)
 		return -1;
 	}
 
-	//printf("PID %d\n", header.PID);
-	//printf("continuity_counter %d\n", header.continuity_counter);
+	printf("PID %d\n", header.PID);
 
 	// 获取适配域
 	if (read_adaption_field(pTsBuf, &header) != 0)
@@ -76,7 +77,7 @@ static int read_adaption_field(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	if (pHeader->adaptation_field_control == 0x2 ||
 		pHeader->adaptation_field_control == 0x3)
 	{
-		pHeader->adpataion_field_length = pTsBuf[4];
+		pHeader->adaptaion_field_length = pTsBuf[4];
 	}
 	return 0;
 }
@@ -98,7 +99,7 @@ static int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	}
 
 	//  看是否为PMT信息
-	if (GLOBAL_PMT != NULL)
+	if (GLOBAL_PAT != NULL)
 	{
 		for (int i = 0; i < GLOBAL_PAT->program_count; i++) {
 			if (GLOBAL_PAT->pPrograms[i].PID == pHeader->PID) {
@@ -224,13 +225,13 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	{
 
 		// 不为4的整数倍，数据有错误
-		if ((pat_loop_data_buffer->len % 4) != 0)
+		if ((pat_loop_data_buffer->used_len % 4) != 0)
 		{
-			printf("pat parse error!pat.loopData.length");
+			printf("pat parse error!pat.loopData.length \n");
 			return -1;
 		}
 
-		tempPat.program_count = pat_loop_data_buffer->len / 4;
+		tempPat.program_count = pat_loop_data_buffer->used_len / 4;
 
 		// 当临时空间不够时申请空间或者扩容，否则直接覆盖临时空间
 		if(tempPat.program_count > temp_programs_count)
@@ -257,7 +258,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		}
 		tempPat.pPrograms = temp_programs;
 
-		for (int i = 0; i < pat_loop_data_buffer->len; i += 4)
+		for (int i = 0; i < pat_loop_data_buffer->used_len; i += 4)
 		{
 
 			int program_number = ((pat_loop_data_buffer->pBytes[i] & 0xff) << 8) | (pat_loop_data_buffer->pBytes[i + 1] & 0xff);
@@ -283,11 +284,11 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 
 	ts_pat_submit(tempPat);
 
-	if ((CUR_PROGRAM_NUM == -1) && (GLOBAL_PAT->program_count > 1)) {
+	if ((CUR_PROGRAM_NUM == -1) && (GLOBAL_PAT->program_count >= 1)) {
 		CUR_PROGRAM_NUM = GLOBAL_PAT->pPrograms[0].program_number;
 	}
 
-	/* TESTS*/
+	/* TESTS
 	for (int i = 0; i < GLOBAL_PAT->program_count; i++) {
 		
 		printf("program_number:%d,reserved:%d,PID:%d\n",
@@ -295,7 +296,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			GLOBAL_PAT->pPrograms[i].reserved,
 			GLOBAL_PAT->pPrograms[i].PID);
 	
-	}
+	}*/
 	return 0;
 }
 
@@ -488,7 +489,7 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		int streamcount = 0;
 
 		// 获取有多少流
-		for (; pos < pmt_loop_data_buffer->len;)
+		for (; pos < pmt_loop_data_buffer->used_len;)
 		{
 			int es_info_length = ((pmt_loop_data_buffer->pBytes[pos + 3] & 0xf) << 8) | pmt_loop_data_buffer->pBytes[pos + 4];
 			if (es_info_length > 0) {
@@ -527,7 +528,7 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 
 		pos = 0;
 		streamcount = 0;
-		for (; pos < pmt_loop_data_buffer->len;)
+		for (; pos < pmt_loop_data_buffer->used_len;)
 		{
 
 			TS_PMT_STREAM s;
@@ -551,9 +552,8 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		byte_list_clean(pmt_loop_data_buffer);
 	}
 	ts_pmt_submit(tempPmt);
-
-	/* TESTS
-	for (int i = 0; i < GLOBAL_PMT->stream_count; i++) {
+	
+	/*for (int i = 0; i < GLOBAL_PMT->stream_count; i++) {
 
 		printf("stream_type:%d,elementary_PID:%d,ES_info_length:%d\n",
 			GLOBAL_PMT->pStreams[i].stream_type,
@@ -627,34 +627,95 @@ int ts_pmt_submit(TS_PMT pmt)
 }
 
 // 输入pes载荷
-int receive_pes_payload(unsigned char * pPesBuf, TS_HEADER * pHeader)
+int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 {
 	int start = 4;
-	int adpataion_field_length = pPesBuf[4];
+	int adpataion_field_length = pTsBuf[4];
 	if (pHeader->adaptation_field_control == 0x3)
 	{
-		start = start + 1 + pHeader->adaptation_field_control;
+		start = start + 1 + pHeader->adaptaion_field_length;
 	}
-	unsigned char *payload = pPesBuf + start;
+	unsigned char *payload = pTsBuf + start;
+	int payload_len = TS_PKT_LEN - start;
 	
 	// ts包中含有新pes包头
 	if (pHeader->payload_unit_start_indicator == 0x1) {
 
+		unsigned PES_packet_length = payload[4] << 8 | payload[5] ;
+		unsigned finish_len = 0;
+		if (PES_packet_length != 0)
+		{
+			finish_len = PES_packet_length + 6;
+		}
 
+		// 取出旧pes包缓存数据
+		BYTE_LIST *pesBuffer = buffer_map_get(&GLOBAL_BUFFER_MAP, pHeader->PID);
+
+		if (pesBuffer != NULL) {
+
+			if (pesBuffer->used_len > 0)
+			{
+				// 获得PES包数据
+				TS_PES_PACKET *pesPkt = read_pes(pesBuffer);
+
+				// TODO
+				//tsDecoder.feedbackPes(pesPkt, p.PID);
+
+				// 清空但不释放空间
+				byte_list_clean(pesBuffer);
+			}
+		}
+		else
+		{
+			pesBuffer = byte_list_create(finish_len);
+			buffer_map_put(&GLOBAL_BUFFER_MAP, pHeader->PID, pesBuffer);
+		}
+		pesBuffer->finish_len = finish_len;
+
+		// 缓存中追加新数据
+		byte_list_add_list(pesBuffer, payload, payload_len);
+
+		// 调试信息打印
+		int pesStartPrefix = (payload[0] << 16) | (payload[1] << 8) | (payload[2]);
+		int stream_id = payload[3];
+		//printf("%d (%d) > pre: %#X  stream_id: %d  PES_packet_length:%d  data: %d \n",	pHeader->PID, pHeader->payload_unit_start_indicator, pesStartPrefix, stream_id, PES_packet_length, payload_len);
 	}
 	else {
 
+		// 取出旧pes包缓存数据
+		BYTE_LIST *pesBuffer = buffer_map_get(&GLOBAL_BUFFER_MAP, pHeader->PID);
+		if (pesBuffer != NULL)
+		{
+			// 缓存中追加新数据
+			byte_list_add_list(pesBuffer, payload, payload_len);
+
+			/*System.out.println(p.PID +"(" + p.payload_unit_start_indicator + ")" + "> data:" + + tsPayload.length + " loading:" +
+					olderBuffer.buffer.length + "/" + (olderBuffer.PES_packet_length + 6));*/
+
+			if (is_byte_list_finish(pesBuffer)) {
+
+				// 获得PES包数据
+				TS_PES_PACKET *pesPkt = read_pes(pesBuffer);
+
+				// TODO
+				//tsDecoder.feedbackPes(pesPkt, p.PID);
+
+				// 清空但不释放空间
+				byte_list_clean(pesBuffer);
+			}
+		}
+		else {
+			printf("receive_pes_payload:can't append data. \n");
+			return -1;
+		}
 	}
-
-
-
 
 	return 0;
 }
 
 // 解析pes包
-int read_pes(unsigned char * pPesBuf)
+TS_PES_PACKET * read_pes(BYTE_LIST * pPesByteList)
 {
-
+	printf("read pes: buffer:  %d/%d\n", pPesByteList->used_len, pPesByteList->finish_len);
 	return 0;
 }

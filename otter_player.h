@@ -7,5 +7,6 @@
 #include <stdlib.h>
 #include <libavcodec/avcodec.h>
 #include "ts_demuxer.h"
+#include "pes_queue.h"
 
 int fileRead(char *filePath);

@@ -12,22 +12,32 @@ static int CUR_PROGRAM_NUM = -1;
 // 全局buffer map
 static HASH_MAP GLOBAL_HASH_MAP = {NULL,0,0};
 
+// 全局ES流数据队列
+static ES_QUEUE *GLOBAL_ES_QUEUE = NULL;
+
 // 临时program/stream列表
 static int temp_programs_count = 0; // 全局节目数
 static TS_PAT_PROGRAM *temp_programs = NULL; // 全局节目数组指针
 static int temp_streams_count = 0; // 全局流总数
 static TS_PMT_STREAM *temp_streams = NULL; // 全局流数组指针
 
+
 // 输入ts包数据
-int receive_ts_packet(unsigned char * pTsBuf)
+int receive_ts_packet(unsigned char * pTsBuf, ES_QUEUE *pEsQueue)
 {
+
+	if (GLOBAL_ES_QUEUE == NULL)
+	{
+		GLOBAL_ES_QUEUE = pEsQueue;
+	}
+
 	TS_HEADER header = { sizeof(TS_HEADER),0 };
 	if (read_ts_head(pTsBuf, &header) != 0)
 	{
 		return -1;
 	}
 
-	printf("PID %d\n", header.PID);
+	//printf("PID:%d \n", header.PID);
 
 	// 获取适配域
 	if (read_adaption_field(pTsBuf, &header) != 0)
@@ -44,10 +54,10 @@ int receive_ts_packet(unsigned char * pTsBuf)
 	return 0;
 }
 
-int receive_ts_packet_by_program_num(unsigned char * pTsBuf, int program_num)
+int receive_ts_packet_by_program_num(unsigned char * pTsBuf, ES_QUEUE *pEsQueue, int program_num)
 {
 	CUR_PROGRAM_NUM = program_num;
-	receive_ts_packet(pTsBuf);
+	receive_ts_packet(pTsBuf, pEsQueue);
 	return 0;
 }
 
@@ -743,51 +753,51 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 // 解析pes包
 int read_pes(BYTE_LIST * pPesByteList)
 {
-	TS_PES_PACKET tp;
+	TS_PES_PACKET *tp = (TS_PES_PACKET *)malloc(sizeof(TS_PES_PACKET));
 	unsigned char * pl = pPesByteList->pBytes;
 
-	tp.pes_start_code_prefix = pl[0] << 16 | pl[1] << 8	| pl[2];
-	if (tp.pes_start_code_prefix != 0x001) {
+	tp->pes_start_code_prefix = pl[0] << 16 | pl[1] << 8	| pl[2];
+	if (tp->pes_start_code_prefix != 0x001) {
 		return -1;
 	}
-	tp.stream_id = pl[3];
-	tp.PES_packet_length = pl[4] << 8 | pl[5];
-	tp.twobit_10 = pl[6] >> 6 & 0x3;
-	tp.PES_scrambling_control = pl[6] >> 4 & 0x3;
-	tp.PES_priority = pl[6] >> 3 & 0x1;
-	tp.data_alignment_indicator = pl[6] >> 2 & 0x1;
-	tp.copyright = pl[6] >> 1 & 0x1;
-	tp.original_or_copy = pl[6] & 0x1;
-	tp.PTS_DTS_flags = pl[7] >> 6 & 0x3;
-	tp.ESCR_flag = pl[7] >> 5 & 0x1;
-	tp.ES_rate_flag = pl[7] >> 4 & 0x1;
-	tp.DSM_trick_mode_flag = pl[7] >> 3 & 0x1;
-	tp.additional_copy_info_flag = pl[7] >> 2 & 0x1;
-	tp.PES_CRC_flag = pl[7] >> 1 & 0x1;
-	tp.PES_extension_flag = pl[7] & 0x1;
-	tp.PES_header_data_length = pl[8];
+	tp->stream_id = pl[3];
+	tp->PES_packet_length = pl[4] << 8 | pl[5];
+	tp->twobit_10 = pl[6] >> 6 & 0x3;
+	tp->PES_scrambling_control = pl[6] >> 4 & 0x3;
+	tp->PES_priority = pl[6] >> 3 & 0x1;
+	tp->data_alignment_indicator = pl[6] >> 2 & 0x1;
+	tp->copyright = pl[6] >> 1 & 0x1;
+	tp->original_or_copy = pl[6] & 0x1;
+	tp->PTS_DTS_flags = pl[7] >> 6 & 0x3;
+	tp->ESCR_flag = pl[7] >> 5 & 0x1;
+	tp->ES_rate_flag = pl[7] >> 4 & 0x1;
+	tp->DSM_trick_mode_flag = pl[7] >> 3 & 0x1;
+	tp->additional_copy_info_flag = pl[7] >> 2 & 0x1;
+	tp->PES_CRC_flag = pl[7] >> 1 & 0x1;
+	tp->PES_extension_flag = pl[7] & 0x1;
+	tp->PES_header_data_length = pl[8];
 
 	// 可选域字节索引
 	int opt_field_idx = 9;
 
 	// PTS(presentation time stamp 显示时间标签)
 	// DTS(decoding time stamp 解码时间标签)标志位
-	if (tp.PTS_DTS_flags == 0x2) {
-		tp.PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
+	if (tp->PTS_DTS_flags == 0x2) {
+		tp->PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
 			pl[opt_field_idx + 1] << 22 |
 			(pl[opt_field_idx + 2] >> 1 & 0x7f) << 15 |
 			pl[opt_field_idx + 3] << 7 |
 			(pl[opt_field_idx + 4] >> 1 & 0x7f);
 		opt_field_idx += 5;
 	}
-	else if (tp.PTS_DTS_flags == 0x3) {
-		tp.PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
+	else if (tp->PTS_DTS_flags == 0x3) {
+		tp->PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
 			pl[opt_field_idx + 1] << 22 |
 			(pl[opt_field_idx + 2] >> 1 & 0x7f) << 15 |
 			pl[opt_field_idx + 3] << 7 |
 			(pl[opt_field_idx + 4] >> 1 & 0x7f);
 
-		tp.DTS = (pl[opt_field_idx + 5] >> 1 & 0x7) << 30 |
+		tp->DTS = (pl[opt_field_idx + 5] >> 1 & 0x7) << 30 |
 			pl[opt_field_idx + 6] << 22 |
 			(pl[opt_field_idx + 7] >> 1 & 0x7f) << 15 |
 			pl[opt_field_idx + 8] << 7 |
@@ -799,15 +809,15 @@ int read_pes(BYTE_LIST * pPesByteList)
 	// 00111011 11111111 11111011 11111111 11111011 11111110
 	// 111 11 11111111 11111 11 11111111 11111
 	// 11 1111111
-	if (tp.ESCR_flag == 0x1) {
-		tp.ESCR_base = (pl[opt_field_idx] >> 3 & 0x7) << 30 |
+	if (tp->ESCR_flag == 0x1) {
+		tp->ESCR_base = (pl[opt_field_idx] >> 3 & 0x7) << 30 |
 			(pl[opt_field_idx] & 0x3) << 28 |
 			pl[opt_field_idx + 1] << 20 |
 			(pl[opt_field_idx + 2] >> 3 & 0x1f) << 15 |
 			(pl[opt_field_idx + 2] & 0x3) << 13 |
 			pl[opt_field_idx + 3] << 5 |
 			(pl[opt_field_idx + 4] >> 3 & 0x1f);
-		tp.ESCR_extension = (pl[opt_field_idx + 4] & 0x3) << 7 |
+		tp->ESCR_extension = (pl[opt_field_idx + 4] & 0x3) << 7 |
 			(pl[opt_field_idx + 5] >> 7 & 0x7f);
 
 		opt_field_idx += 6;
@@ -815,8 +825,8 @@ int read_pes(BYTE_LIST * pPesByteList)
 
 	// ES 速率（基本流速率）
 	// 01111111 11111111 11111110
-	if (tp.ES_rate_flag == 0x1) {
-		tp.ES_rate = (pl[opt_field_idx] & 0x7f) << 15 |
+	if (tp->ES_rate_flag == 0x1) {
+		tp->ES_rate = (pl[opt_field_idx] & 0x7f) << 15 |
 			pl[opt_field_idx + 1] << 7 |
 			(pl[opt_field_idx + 2] >> 1 & 0x7f);
 
@@ -824,56 +834,63 @@ int read_pes(BYTE_LIST * pPesByteList)
 	}
 
 	// 相关视频流的特技方式
-	if (tp.DSM_trick_mode_flag == 0x1) {
+	if (tp->DSM_trick_mode_flag == 0x1) {
 
 		// '000' 快进
 		// '001' 慢动作
 		// '010' 冻结帧
 		// '011' 快速反向
 		// '100' 慢反向
-		tp.trick_mode_control = pl[opt_field_idx] >> 5 & 0x7;
-		if (tp.trick_mode_control == 0x0) {
-			tp.field_id = pl[opt_field_idx] >> 3 & 0x3;
-			tp.intra_slice_refresh = pl[opt_field_idx] >> 2 & 0x1;
-			tp.frequency_truncation = pl[opt_field_idx] & 0x3;
+		tp->trick_mode_control = pl[opt_field_idx] >> 5 & 0x7;
+		if (tp->trick_mode_control == 0x0) {
+			tp->field_id = pl[opt_field_idx] >> 3 & 0x3;
+			tp->intra_slice_refresh = pl[opt_field_idx] >> 2 & 0x1;
+			tp->frequency_truncation = pl[opt_field_idx] & 0x3;
 		}
-		else if (tp.trick_mode_control == 0x1) {
-			tp.rep_cntrl = pl[opt_field_idx] & 0x1f;
+		else if (tp->trick_mode_control == 0x1) {
+			tp->rep_cntrl = pl[opt_field_idx] & 0x1f;
 		}
-		else if (tp.trick_mode_control == 0x2) {
-			tp.field_id = pl[opt_field_idx] >> 3 & 0x3;
+		else if (tp->trick_mode_control == 0x2) {
+			tp->field_id = pl[opt_field_idx] >> 3 & 0x3;
 		}
-		else if (tp.trick_mode_control == 0x3) {
-			tp.field_id = pl[opt_field_idx] >> 3 & 0x3;
-			tp.intra_slice_refresh = pl[opt_field_idx] >> 2 & 0x1;
-			tp.frequency_truncation = pl[opt_field_idx] & 0x3;
+		else if (tp->trick_mode_control == 0x3) {
+			tp->field_id = pl[opt_field_idx] >> 3 & 0x3;
+			tp->intra_slice_refresh = pl[opt_field_idx] >> 2 & 0x1;
+			tp->frequency_truncation = pl[opt_field_idx] & 0x3;
 		}
-		else if (tp.trick_mode_control == 0x4) {
-			tp.rep_cntrl = pl[opt_field_idx] & 0x1f;
+		else if (tp->trick_mode_control == 0x4) {
+			tp->rep_cntrl = pl[opt_field_idx] & 0x1f;
 		}
 		opt_field_idx += 1;
 	}
 
-	if (tp.additional_copy_info_flag == 0x1) {
-		tp.additional_copy_info = pl[opt_field_idx] & 0x7f;
+	if (tp->additional_copy_info_flag == 0x1) {
+		tp->additional_copy_info = pl[opt_field_idx] & 0x7f;
 		opt_field_idx += 1;
 	}
 
-	if (tp.PES_CRC_flag == 0x1) {
-		tp.previous_PES_packet_CRC = pl[opt_field_idx] << 8 |
+	if (tp->PES_CRC_flag == 0x1) {
+		tp->previous_PES_packet_CRC = pl[opt_field_idx] << 8 |
 			pl[opt_field_idx];
 	}
 
-	if (tp.PES_extension_flag == 0x1) {
+	if (tp->PES_extension_flag == 0x1) {
 		return -1;
 	}
 
 	// 截取payload
-	int dataBegin = 9 + tp.PES_header_data_length;
+	int dataBegin = 9 + tp->PES_header_data_length;
 	int es_data_len = pPesByteList->used_len - dataBegin;
-	tp.pEsData = pPesByteList->pBytes + dataBegin;
+	tp->pEsData = pPesByteList->pBytes + dataBegin;
 
-	printf("read pes: buffer:  %d/%d\n", pPesByteList->used_len, pPesByteList->finish_len);
-	printf("read pes: es data len:  %d\n", es_data_len);
+	// 把es数据添加至处理队列
+	int add_res = es_queue_add(GLOBAL_ES_QUEUE, tp);
+	if (add_res == -1)
+	{
+		printf(">>>>>>>>>>>>>>>>>>>>>");
+	}
+
+	//printf("read pes: buffer:  %d/%d\n", pPesByteList->used_len, pPesByteList->finish_len);
+	//printf("read pes: es data len:  %d\n", es_data_len);
 	return 0;
 }

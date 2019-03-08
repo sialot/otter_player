@@ -112,11 +112,17 @@ static int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	// 看是否为PES信息
 	if (GLOBAL_PMT != NULL)
 	{
-		for (int j = 0; j < GLOBAL_PMT->stream_count; j++) {
+		if (pHeader->PID == GLOBAL_PMT->main_video_PID ||
+			pHeader->PID == GLOBAL_PMT->main_audio_PID)
+		{
+			rs = receive_pes_payload(pTsBuf, pHeader);
+		}
+
+		/*for (int j = 0; j < GLOBAL_PMT->stream_count; j++) {
 			if (GLOBAL_PMT->pStreams[j].elementary_PID == pHeader->PID) {
 				rs = receive_pes_payload(pTsBuf, pHeader);
 			}
-		}
+		}*/
 	}
 
 	return rs;
@@ -623,6 +629,27 @@ int ts_pmt_submit(TS_PMT pmt)
 	GLOBAL_PMT->stream_count = pmt.stream_count;
 
 	memcpy(GLOBAL_PMT->pStreams, pmt.pStreams, sizeof(TS_PMT_STREAM) * pmt.stream_count);
+
+	int video_found = 0;
+	int audio_found = 0;
+
+	// 设置视频、音频
+	for(int i = 0; i<  GLOBAL_PMT->stream_count; i++)
+	{ 
+		// h.264编码对应0x1b
+		// aac编码对应0x0f
+		if (GLOBAL_PMT->pStreams[i].stream_type == 0x1b && !video_found)
+		{
+			GLOBAL_PMT->main_video_PID = GLOBAL_PMT->pStreams[i].elementary_PID;
+			video_found = 1;
+		}
+		if (GLOBAL_PMT->pStreams[i].stream_type == 0x0f && !audio_found)
+		{
+			GLOBAL_PMT->main_audio_PID = GLOBAL_PMT->pStreams[i].elementary_PID;
+			audio_found = 1;
+		}
+	}
+
 	return 0;
 }
 
@@ -656,7 +683,7 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			if (pesBuffer->used_len > 0)
 			{
 				// 获得PES包数据
-				TS_PES_PACKET *pesPkt = read_pes(pesBuffer);
+				int rs = read_pes(pesBuffer);
 
 				// TODO
 				//tsDecoder.feedbackPes(pesPkt, p.PID);
@@ -695,7 +722,7 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			if (is_byte_list_finish(pesBuffer)) {
 
 				// 获得PES包数据
-				TS_PES_PACKET *pesPkt = read_pes(pesBuffer);
+				int rs = read_pes(pesBuffer);
 
 				// TODO
 				//tsDecoder.feedbackPes(pesPkt, p.PID);
@@ -714,8 +741,139 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 }
 
 // 解析pes包
-TS_PES_PACKET * read_pes(BYTE_LIST * pPesByteList)
+int read_pes(BYTE_LIST * pPesByteList)
 {
+	TS_PES_PACKET tp;
+	unsigned char * pl = pPesByteList->pBytes;
+
+	tp.pes_start_code_prefix = pl[0] << 16 | pl[1] << 8	| pl[2];
+	if (tp.pes_start_code_prefix != 0x001) {
+		return -1;
+	}
+	tp.stream_id = pl[3];
+	tp.PES_packet_length = pl[4] << 8 | pl[5];
+	tp.twobit_10 = pl[6] >> 6 & 0x3;
+	tp.PES_scrambling_control = pl[6] >> 4 & 0x3;
+	tp.PES_priority = pl[6] >> 3 & 0x1;
+	tp.data_alignment_indicator = pl[6] >> 2 & 0x1;
+	tp.copyright = pl[6] >> 1 & 0x1;
+	tp.original_or_copy = pl[6] & 0x1;
+	tp.PTS_DTS_flags = pl[7] >> 6 & 0x3;
+	tp.ESCR_flag = pl[7] >> 5 & 0x1;
+	tp.ES_rate_flag = pl[7] >> 4 & 0x1;
+	tp.DSM_trick_mode_flag = pl[7] >> 3 & 0x1;
+	tp.additional_copy_info_flag = pl[7] >> 2 & 0x1;
+	tp.PES_CRC_flag = pl[7] >> 1 & 0x1;
+	tp.PES_extension_flag = pl[7] & 0x1;
+	tp.PES_header_data_length = pl[8];
+
+	// 可选域字节索引
+	int opt_field_idx = 9;
+
+	// PTS(presentation time stamp 显示时间标签)
+	// DTS(decoding time stamp 解码时间标签)标志位
+	if (tp.PTS_DTS_flags == 0x2) {
+		tp.PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
+			pl[opt_field_idx + 1] << 22 |
+			(pl[opt_field_idx + 2] >> 1 & 0x7f) << 15 |
+			pl[opt_field_idx + 3] << 7 |
+			(pl[opt_field_idx + 4] >> 1 & 0x7f);
+		opt_field_idx += 5;
+	}
+	else if (tp.PTS_DTS_flags == 0x3) {
+		tp.PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
+			pl[opt_field_idx + 1] << 22 |
+			(pl[opt_field_idx + 2] >> 1 & 0x7f) << 15 |
+			pl[opt_field_idx + 3] << 7 |
+			(pl[opt_field_idx + 4] >> 1 & 0x7f);
+
+		tp.DTS = (pl[opt_field_idx + 5] >> 1 & 0x7) << 30 |
+			pl[opt_field_idx + 6] << 22 |
+			(pl[opt_field_idx + 7] >> 1 & 0x7f) << 15 |
+			pl[opt_field_idx + 8] << 7 |
+			(pl[opt_field_idx + 9] >> 1 & 0x7f);
+		opt_field_idx += 10;
+	}
+
+	// 基本流时钟参考
+	// 00111011 11111111 11111011 11111111 11111011 11111110
+	// 111 11 11111111 11111 11 11111111 11111
+	// 11 1111111
+	if (tp.ESCR_flag == 0x1) {
+		tp.ESCR_base = (pl[opt_field_idx] >> 3 & 0x7) << 30 |
+			(pl[opt_field_idx] & 0x3) << 28 |
+			pl[opt_field_idx + 1] << 20 |
+			(pl[opt_field_idx + 2] >> 3 & 0x1f) << 15 |
+			(pl[opt_field_idx + 2] & 0x3) << 13 |
+			pl[opt_field_idx + 3] << 5 |
+			(pl[opt_field_idx + 4] >> 3 & 0x1f);
+		tp.ESCR_extension = (pl[opt_field_idx + 4] & 0x3) << 7 |
+			(pl[opt_field_idx + 5] >> 7 & 0x7f);
+
+		opt_field_idx += 6;
+	}
+
+	// ES 速率（基本流速率）
+	// 01111111 11111111 11111110
+	if (tp.ES_rate_flag == 0x1) {
+		tp.ES_rate = (pl[opt_field_idx] & 0x7f) << 15 |
+			pl[opt_field_idx + 1] << 7 |
+			(pl[opt_field_idx + 2] >> 1 & 0x7f);
+
+		opt_field_idx += 3;
+	}
+
+	// 相关视频流的特技方式
+	if (tp.DSM_trick_mode_flag == 0x1) {
+
+		// '000' 快进
+		// '001' 慢动作
+		// '010' 冻结帧
+		// '011' 快速反向
+		// '100' 慢反向
+		tp.trick_mode_control = pl[opt_field_idx] >> 5 & 0x7;
+		if (tp.trick_mode_control == 0x0) {
+			tp.field_id = pl[opt_field_idx] >> 3 & 0x3;
+			tp.intra_slice_refresh = pl[opt_field_idx] >> 2 & 0x1;
+			tp.frequency_truncation = pl[opt_field_idx] & 0x3;
+		}
+		else if (tp.trick_mode_control == 0x1) {
+			tp.rep_cntrl = pl[opt_field_idx] & 0x1f;
+		}
+		else if (tp.trick_mode_control == 0x2) {
+			tp.field_id = pl[opt_field_idx] >> 3 & 0x3;
+		}
+		else if (tp.trick_mode_control == 0x3) {
+			tp.field_id = pl[opt_field_idx] >> 3 & 0x3;
+			tp.intra_slice_refresh = pl[opt_field_idx] >> 2 & 0x1;
+			tp.frequency_truncation = pl[opt_field_idx] & 0x3;
+		}
+		else if (tp.trick_mode_control == 0x4) {
+			tp.rep_cntrl = pl[opt_field_idx] & 0x1f;
+		}
+		opt_field_idx += 1;
+	}
+
+	if (tp.additional_copy_info_flag == 0x1) {
+		tp.additional_copy_info = pl[opt_field_idx] & 0x7f;
+		opt_field_idx += 1;
+	}
+
+	if (tp.PES_CRC_flag == 0x1) {
+		tp.previous_PES_packet_CRC = pl[opt_field_idx] << 8 |
+			pl[opt_field_idx];
+	}
+
+	if (tp.PES_extension_flag == 0x1) {
+		return -1;
+	}
+
+	// 截取payload
+	int dataBegin = 9 + tp.PES_header_data_length;
+	int es_data_len = pPesByteList->used_len - dataBegin;
+	tp.pEsData = pPesByteList->pBytes + dataBegin;
+
 	printf("read pes: buffer:  %d/%d\n", pPesByteList->used_len, pPesByteList->finish_len);
+	printf("read pes: es data len:  %d\n", es_data_len);
 	return 0;
 }

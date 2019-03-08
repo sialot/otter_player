@@ -77,7 +77,9 @@ typedef struct TS_PMT
 	unsigned program_info_length            : 12; // 节目描述信息，指定为0x000表示没有
 	unsigned char *pProgramInfoBytes;
 	unsigned CRC                            : 32; // CRC校验码
-	int stream_count                   : 8;
+	unsigned main_video_PID                 : 13;
+	unsigned main_audio_PID                 : 13;
+	int stream_count : 8;
 	TS_PMT_STREAM *pStreams;
 } TS_PMT;
 
@@ -114,7 +116,6 @@ typedef struct TS_PES_PACKET
 	unsigned previous_PES_packet_CRC       :16; //  包含产生解码器中 16 寄存器零输出的 CRC 值
 	unsigned char * pEsData; // es 流数据
 	int es_data_len;
-	int pay_load_len;
 } TS_PES_PACKET;
 
 // 输入ts包数据
@@ -146,4 +147,4 @@ static int ts_pmt_submit(TS_PMT pat);
 static int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader);
 
 // 解析pes包
-static TS_PES_PACKET *  read_pes(BYTE_LIST * pPesByteList);
+static int read_pes(BYTE_LIST * pPesByteList);

@@ -10,7 +10,7 @@ static TS_PMT *GLOBAL_PMT = NULL; // 当前节目
 static int CUR_PROGRAM_NUM = -1;
 
 // 全局buffer map
-static BUFFER_MAP GLOBAL_BUFFER_MAP = {NULL,0,0};
+static HASH_MAP GLOBAL_HASH_MAP = {NULL,0,0};
 
 // 临时program/stream列表
 static int temp_programs_count = 0; // 全局节目数
@@ -204,7 +204,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	// 循环数据数组起始
 	unsigned char * pLoopData = payload + loopStartPos;
 
-	BYTE_LIST * pat_loop_data_buffer = buffer_map_get(&GLOBAL_BUFFER_MAP, pHeader->PID);
+	BYTE_LIST * pat_loop_data_buffer = (BYTE_LIST *)hash_map_get(&GLOBAL_HASH_MAP, pHeader->PID);
 
 	// 当前段不是第一个pat包，加载旧字节数组
 	if (tempPat.section_number != 0x00)
@@ -212,7 +212,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		if (pat_loop_data_buffer == NULL)  // buffer未初始化
 		{
 			pat_loop_data_buffer = byte_list_create(loopLength);
-			buffer_map_put(&GLOBAL_BUFFER_MAP, pHeader->PID, pat_loop_data_buffer);
+			hash_map_put(&GLOBAL_HASH_MAP, pHeader->PID, pat_loop_data_buffer);
 		}
 	}
 	else
@@ -222,7 +222,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			byte_list_clean(pat_loop_data_buffer);
 		}
 		pat_loop_data_buffer = byte_list_create(loopLength);
-		buffer_map_put(&GLOBAL_BUFFER_MAP, pHeader->PID, pat_loop_data_buffer);
+		hash_map_put(&GLOBAL_HASH_MAP, pHeader->PID, pat_loop_data_buffer);
 	}
 	byte_list_add_list(pat_loop_data_buffer, pLoopData, loopLength);
 
@@ -443,12 +443,12 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	if (tempPmt.program_info_length != 0x0)
 	{
 		int key = 0x1 << 13 | pHeader->PID;
-		BYTE_LIST *pmt_program_info_buffer = buffer_map_get(&GLOBAL_BUFFER_MAP, key);
+		BYTE_LIST *pmt_program_info_buffer = (BYTE_LIST *)hash_map_get(&GLOBAL_HASH_MAP, key);
 
 		if (pmt_program_info_buffer == NULL)
 		{
 			pmt_program_info_buffer = byte_list_create(tempPmt.program_info_length);
-			buffer_map_put(&GLOBAL_BUFFER_MAP, key, pmt_program_info_buffer);
+			hash_map_put(&GLOBAL_HASH_MAP, key, pmt_program_info_buffer);
 		}
 		else
 		{
@@ -466,7 +466,7 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	// 循环数据数组起始
 	unsigned char * pLoopData = payload + loopStartPos;
 	
-	BYTE_LIST *pmt_loop_data_buffer = buffer_map_get(&GLOBAL_BUFFER_MAP, pHeader->PID);
+	BYTE_LIST *pmt_loop_data_buffer = (BYTE_LIST *)hash_map_get(&GLOBAL_HASH_MAP, pHeader->PID);
 
 	// 当前段不是第一个pat包，加载旧字节数组
 	if (tempPmt.section_number != 0x00)
@@ -474,7 +474,7 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		if (pmt_loop_data_buffer == NULL)  // buffer未初始化
 		{
 			pmt_loop_data_buffer = byte_list_create(loopLength);
-			buffer_map_put(&GLOBAL_BUFFER_MAP,pHeader->PID,pmt_loop_data_buffer);
+			hash_map_put(&GLOBAL_HASH_MAP,pHeader->PID,pmt_loop_data_buffer);
 		}
 	}
 	else
@@ -484,7 +484,7 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			byte_list_clean(pmt_loop_data_buffer);
 		}
 		pmt_loop_data_buffer = byte_list_create(loopLength);
-		buffer_map_put(&GLOBAL_BUFFER_MAP, pHeader->PID, pmt_loop_data_buffer);
+		hash_map_put(&GLOBAL_HASH_MAP, pHeader->PID, pmt_loop_data_buffer);
 	}
 	byte_list_add_list(pmt_loop_data_buffer, pLoopData, loopLength);
 
@@ -676,7 +676,7 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		}
 
 		// 取出旧pes包缓存数据
-		BYTE_LIST *pesBuffer = buffer_map_get(&GLOBAL_BUFFER_MAP, pHeader->PID);
+		BYTE_LIST *pesBuffer = (BYTE_LIST *)hash_map_get(&GLOBAL_HASH_MAP, pHeader->PID);
 
 		if (pesBuffer != NULL) {
 
@@ -695,7 +695,7 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		else
 		{
 			pesBuffer = byte_list_create(finish_len);
-			buffer_map_put(&GLOBAL_BUFFER_MAP, pHeader->PID, pesBuffer);
+			hash_map_put(&GLOBAL_HASH_MAP, pHeader->PID, pesBuffer);
 		}
 		pesBuffer->finish_len = finish_len;
 
@@ -710,7 +710,7 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	else {
 
 		// 取出旧pes包缓存数据
-		BYTE_LIST *pesBuffer = buffer_map_get(&GLOBAL_BUFFER_MAP, pHeader->PID);
+		BYTE_LIST *pesBuffer = (BYTE_LIST *)hash_map_get(&GLOBAL_HASH_MAP, pHeader->PID);
 		if (pesBuffer != NULL)
 		{
 			// 缓存中追加新数据

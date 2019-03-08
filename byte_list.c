@@ -1,7 +1,7 @@
 
 #include "byte_list.h"
-const int ENHANCE_SIZE = 8 * 1024;
-const int AUTO_FREE_SIZE = 16 * 1024;
+const int ENHANCE_SIZE = 32 * 1024;
+const int AUTO_FREE_SIZE = 64 * 1024;
 
 BYTE_LIST* byte_list_create(int size)
 {

@@ -11,6 +11,7 @@ typedef struct BLOCK_QUEUE
 	int head;
 	int tail;
 	pthread_mutex_t data_mutex;
+	pthread_cond_t msg_cond;
 	void *items[0];
 } BLOCK_QUEUE;
 
@@ -19,4 +20,5 @@ int block_queue_push(BLOCK_QUEUE *queue, void *item);
 void * block_queue_poll(BLOCK_QUEUE *queue);
 int is_block_queue_full(BLOCK_QUEUE *queue);
 int is_block_queue_empty(BLOCK_QUEUE *queue);
+int block_queue_clean(BLOCK_QUEUE *queue);
 int block_queue_destory(BLOCK_QUEUE *queue);

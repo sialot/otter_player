@@ -1,7 +1,5 @@
 #include "block_queue.h"
 
-pthread_cond_t msg_cond = PTHREAD_COND_INITIALIZER;
-
 BLOCK_QUEUE * block_queue_create(int size)
 {
 	BLOCK_QUEUE *newQueue = (BLOCK_QUEUE *)malloc(sizeof(BLOCK_QUEUE) + sizeof(void *) * size);
@@ -13,6 +11,7 @@ BLOCK_QUEUE * block_queue_create(int size)
 	newQueue->size = size;
 	newQueue->head = 0;
 	newQueue->tail = 0;
+	newQueue->msg_cond = PTHREAD_COND_INITIALIZER;
 
 	if (0 != pthread_mutex_init(&(newQueue->data_mutex), NULL))
 	{
@@ -36,7 +35,7 @@ int block_queue_push(BLOCK_QUEUE *q, void *item)
 		gettimeofday(&now, NULL);
 		tsp.tv_sec = now.tv_sec + 20;
 		tsp.tv_nsec = now.tv_usec * 1000;
-		if (0 != pthread_cond_timedwait(&msg_cond, &(q->data_mutex), &tsp))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
+		if (0 != pthread_cond_timedwait(&(q->msg_cond), &(q->data_mutex), &tsp))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
 		{
 			printf("[%s]: queue is full\n", __FUNCTION__);
 			pthread_mutex_unlock(&(q->data_mutex));
@@ -51,7 +50,7 @@ int block_queue_push(BLOCK_QUEUE *q, void *item)
 	q->tail = tail_next;
 
 	pthread_mutex_unlock(&(q->data_mutex));
-	pthread_cond_signal(&msg_cond);
+	pthread_cond_signal(&(q->msg_cond));
 	return 0;
 }
 
@@ -66,7 +65,7 @@ void * block_queue_poll(BLOCK_QUEUE *q)
 		gettimeofday(&now, NULL);
 		tsp.tv_sec = now.tv_sec + 20;
 		tsp.tv_nsec = now.tv_usec * 1000;
-		if (0 != pthread_cond_timedwait(&msg_cond, &(q->data_mutex), &tsp))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
+		if (0 != pthread_cond_timedwait(&(q->msg_cond), &(q->data_mutex), &tsp))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
 		{
 			printf("[%s]: queue is empty\n", __FUNCTION__);
 			pthread_mutex_unlock(&(q->data_mutex));
@@ -78,7 +77,7 @@ void * block_queue_poll(BLOCK_QUEUE *q)
 	q->head = (q->head + 1) % (q->size + 1);
 
 	pthread_mutex_unlock(&(q->data_mutex));
-	pthread_cond_signal(&msg_cond);
+	pthread_cond_signal(&(q->msg_cond));
 	return item;
 }
 
@@ -101,15 +100,21 @@ int is_block_queue_empty(BLOCK_QUEUE * q)
 	return 0;
 }
 
+int block_queue_clean(BLOCK_QUEUE * queue)
+{
+
+	while (!is_block_queue_empty(queue))
+	{ 
+		void * item = block_queue_poll(queue);
+		free(item);
+	};
+	return 0;
+}
+
 int block_queue_destory(BLOCK_QUEUE *queue)
 {
 	pthread_mutex_destroy(&(queue->data_mutex));
-
-	do{
-		void * item = block_queue_poll(queue);
-		free(item);
-	} while (!is_block_queue_empty(queue));
-
+	block_queue_clean(queue);
 	free(queue);
 	return 0;
 }

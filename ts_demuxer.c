@@ -12,9 +12,6 @@ static int CUR_PROGRAM_NUM = -1;
 // 全局buffer map
 static HASH_MAP GLOBAL_HASH_MAP = {NULL,0,0};
 
-// 全局ES流数据队列
-static ES_QUEUE *GLOBAL_ES_QUEUE = NULL;
-
 // 临时program/stream列表
 static int temp_programs_count = 0; // 全局节目数
 static TS_PAT_PROGRAM *temp_programs = NULL; // 全局节目数组指针
@@ -23,13 +20,8 @@ static TS_PMT_STREAM *temp_streams = NULL; // 全局流数组指针
 
 
 // 输入ts包数据
-int receive_ts_packet(unsigned char * pTsBuf, ES_QUEUE *pEsQueue)
+int receive_ts_packet(unsigned char * pTsBuf)
 {
-
-	if (GLOBAL_ES_QUEUE == NULL)
-	{
-		GLOBAL_ES_QUEUE = pEsQueue;
-	}
 
 	TS_HEADER header = { sizeof(TS_HEADER),0 };
 	if (read_ts_head(pTsBuf, &header) != 0)
@@ -54,10 +46,10 @@ int receive_ts_packet(unsigned char * pTsBuf, ES_QUEUE *pEsQueue)
 	return 0;
 }
 
-int receive_ts_packet_by_program_num(unsigned char * pTsBuf, ES_QUEUE *pEsQueue, int program_num)
+int receive_ts_packet_by_program_num(unsigned char * pTsBuf, int programNum)
 {
-	CUR_PROGRAM_NUM = program_num;
-	receive_ts_packet(pTsBuf, pEsQueue);
+	CUR_PROGRAM_NUM = programNum;
+	receive_ts_packet(pTsBuf);
 	return 0;
 }
 
@@ -884,11 +876,11 @@ int read_pes(BYTE_LIST * pPesByteList)
 	tp->pEsData = pPesByteList->pBytes + dataBegin;
 
 	// 把es数据添加至处理队列
-	int add_res = es_queue_add(GLOBAL_ES_QUEUE, tp);
-	if (add_res == -1)
-	{
-		printf(">>>>>>>>>>>>>>>>>>>>>");
-	}
+	//int add_res = es_queue_add(GLOBAL_DATA_QUEUE, tp);
+	//if (add_res == -1)
+	//{
+	//	printf(">>>>>>>>>>>>>>>>>>>>>");
+	//}
 
 	//printf("read pes: buffer:  %d/%d\n", pPesByteList->used_len, pPesByteList->finish_len);
 	//printf("read pes: es data len:  %d\n", es_data_len);

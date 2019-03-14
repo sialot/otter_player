@@ -4,7 +4,6 @@
 #include <string.h>
 #include "byte_list.h"
 #include "hash_map.h"
-#include "pes_queue.h"
 
 // ts 头
 typedef struct TS_HEADER
@@ -120,8 +119,8 @@ typedef struct TS_PES_PACKET
 } TS_PES_PACKET;
 
 // 输入ts包数据
-int receive_ts_packet(unsigned char *pTsBuf, ES_QUEUE *pEsQueue);
-int receive_ts_packet_by_program_num(unsigned char *pTsBuf, ES_QUEUE *pEsQueue, int program_num);
+int receive_ts_packet(unsigned char *pTsBuf);
+int receive_ts_packet_by_program_num(unsigned char *pTsBuf, int programNum);
 
 // 读取ts包头
 static int read_ts_head(unsigned char *pTsBuf, TS_HEADER *pHeader);

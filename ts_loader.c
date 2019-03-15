@@ -101,7 +101,7 @@ TS_LOADER * create_ts_loader(char * mediaUrl, int duration, int start_time, int 
 		loader->is_can_seek = 1;
 	}
 
-	printf("create_ts_loader>> url:%s, time:%d/%d, range:%d/%d \n", loader->media_url, 
+	printf("create_ts_loader>> url:%s, time:%d/%d, range:%d/%d \n", loader->media_url,
 		loader->start_time, loader->duration, loader->current_range, loader->media_file_size);
 	return loader;
 }
@@ -116,7 +116,7 @@ void ts_loader_range_load(TS_LOADER *l)
 
 	_get_file_data(l);
 
-	if (l->media_file_size !=0 && l->current_range >= l->media_file_size)
+	if (l->media_file_size != 0 && l->current_range >= l->media_file_size)
 	{
 		printf("l->current_range >= l->media_file_size .is_finish = 1\n");
 		l->is_finish = 1;
@@ -182,7 +182,7 @@ void *_call_xhr_get_file_size(void * args)
 {
 	_thread_param param = *(_thread_param *)args;
 	TS_LOADER *l = param.loaderPointer;
-	
+
 	// µ÷ÓÃjsº¯Êý
 	_js_xhr_get_file_size(l, l->media_url);
 	pthread_exit(NULL);
@@ -239,7 +239,7 @@ EM_PORT_API(void) _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int
 		return;
 	}
 
-	for (int i = 0; i < len/188; i++)
+	for (int i = 0; i < len / 188; i++)
 	{
 		unsigned char * data = bytes + i * 188;
 		BYTE_LIST *pkt = byte_list_create(188);

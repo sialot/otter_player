@@ -1,1 +1,14 @@
-emcc player.c block_queue.c ts_loader.c --post-js js/otter_player.js -o out/player.js 
+
+
+dev:
+
+emcc player.c block_queue.c byte_list.c ts_loader.c --post-js js/otter_player.js -Werror --js-library ts_loader.js -s TOTAL_MEMORY=104857600 -s ASSERTIONS=2 -s USE_PTHREADS -s PTHREAD_POOL_SIZE=5  -s EXTRA_EXPORTED_RUNTIME_METHODS=['ccall']  -o out/player.js 
+
+pro:
+
+emcc player.c block_queue.c byte_list.c ts_loader.c --post-js js/otter_player.js -Werror --js-library ts_loader.js -s TOTAL_MEMORY=104857600 -s ASSERTIONS=2 -s USE_PTHREADS -s PTHREAD_POOL_SIZE=5  -s EXTRA_EXPORTED_RUNTIME_METHODS=['ccall']  -o out/player.js 
+
+
+
+-s "ALLOW_MEMORY_GROWTH=1"
+

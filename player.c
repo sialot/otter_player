@@ -18,11 +18,12 @@
 #include "player.h"
 
 // 每次缓存的最大ts包数
-const int TS_LOAD_BUFFER_COUNT = 500;
+const int TS_LOAD_BUFFER_COUNT = 1000;
 
 // 每次缓存的最大pes包数
 const int PES_BUFFER_COUNT = 256;
 
+// 创建播放器
 EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 {
 	OTTER_PLAYER *p = malloc(sizeof(OTTER_PLAYER));
@@ -33,50 +34,57 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 		return NULL;
 	}
 
-	p->current_play_time = 0;
-	p->media_duration = 0;
+	// 初始化状态，显示宽高
 	p->status = INIT_FINISH;
 	p->display_height = display_height;
 	p->display_width = display_width;
-	p->media_url[0] = '\0';
-	p->ts_load_thread = NULL;
-	p->ts_demux_thread = NULL;
-	p->pes_decode_thread = NULL;
 
-	p->ts_pkt_queue = block_queue_create(TS_LOAD_BUFFER_COUNT);
-	if (p->ts_pkt_queue == NULL)
-	{
-		printf("ts_pkt_queue init failed!\n");
-		return NULL;
-	}
+	// 初始化媒体数据
+	_clean_old_media_info(p);
 
-	p->pes_pkt_queue = block_queue_create(PES_BUFFER_COUNT);
-	if (p->pes_pkt_queue == NULL)
-	{
-		printf("pes_pkt_queue init failed!\n");
-		return NULL;
-	}
+	// 初始化 加载器、解封装器、解码器 的指针
+	p->ts_loader = NULL;
 
 	printf("player inited! \n");
 	return p;
 }
 
+// 设定媒体
 EM_PORT_API(int) set_media(OTTER_PLAYER *p, char * media_url, int duration)
 {
+	printf("set media start >>url:%s, duration:%d\n", p->media_url, duration);
 	if (p == NULL) {
 		printf("player is null!\n");
 		return -1;
 	}
-	if (p->status == PLAYING)
+
+	// 播放中不允许重设媒体
+	if (p->status == PLAYING || p->status == PAUSING)
 	{
-		_reset_player(p);
+		printf("player media is playing or pausing ,can't set media!\n");
+		return -1;
 	}
+
+	// 清理旧媒体
+	_clean_old_media_info(p);
+
+	// 清空现有缓存队列
+	ts_loader_destroy(p->ts_loader);
+	p->ts_loader = NULL;
+
+	//pes 队列清空 TODO
+
+	// 设置新媒体
 	p->media_duration = duration;
 	strcpy(p->media_url, media_url);
-	printf("set media_duration >>%d\n", p->media_duration);
+
+	// 获取媒体起始时间戳
+	_get_media_start_timestamp(p);
+	printf("set media complete!\n");
 	return 0;
 }
 
+// 播放
 EM_PORT_API(int) play(OTTER_PLAYER *p)
 {
 	if (p == NULL) {
@@ -86,6 +94,7 @@ EM_PORT_API(int) play(OTTER_PLAYER *p)
 	return play_by_time(p, p->current_play_time);
 }
 
+// 按时间播放
 EM_PORT_API(int) play_by_time(OTTER_PLAYER *p, int time)
 {
 	printf("play_by_time(%d) \n", time);
@@ -94,15 +103,8 @@ EM_PORT_API(int) play_by_time(OTTER_PLAYER *p, int time)
 		return -1;
 	}
 
-	// 播放状态确认
-	if (p->status == PLAYING || p->status == PAUSING)
-	{
-		// 销毁加载器
-		_destroy_loader(p);
-	}
-
 	// 创建加载器
-	if (_create_loader(p, time) == -1)
+	if (_create_loader_and_thread(p, time) == -1)
 	{
 		printf("_prepare_loader failed!\n");
 		return -1;
@@ -111,7 +113,9 @@ EM_PORT_API(int) play_by_time(OTTER_PLAYER *p, int time)
 	// 解封装
 
 	// 解码
+
 	// TODO
+
 	return 0;
 }
 
@@ -133,29 +137,75 @@ EM_PORT_API(int) stop(OTTER_PLAYER *p)
 	return 0;
 }
 
-EM_PORT_API(int) destory_player(OTTER_PLAYER *p)
+EM_PORT_API(int) destroy_player(OTTER_PLAYER *p)
 {
 	if (p == NULL) {
 		printf("player is null!\n");
 		return -1;
 	}
-	block_queue_destory(p->ts_pkt_queue);
-	block_queue_destory(p->pes_pkt_queue);
+
+	// 销毁加载器和对应线程
+	_destroy_loader_and_thread(p);
 
 	// TODO
-
+	//pthread_t *ts_demux_thread; // ts解封装线程
+	//pthread_t *pes_decode_thread; // pes解码线程
 
 	free(p);
 	return 0;
 }
 
-static int _create_loader(OTTER_PLAYER *p, int time)
+int _clean_old_media_info(OTTER_PLAYER *p)
 {
+	p->current_play_time = 0;
+	p->media_duration = -1;
+	p->media_start_timestamp = -1;
+	p->media_current_timestamp = -1;
+	p->media_url[0] = '\0';
+	return 0;
+}
+
+// 获取媒体起始时间戳
+int _get_media_start_timestamp(OTTER_PLAYER * p)
+{
+	printf("_get_media_start_timestamp\n");
+
+	TS_LOADER *loader = create_ts_loader(p->media_url, p->media_duration, 0, TS_LOAD_BUFFER_COUNT);
+
+	int i = 0;
+	while (i == 0)
+	{
+		ts_loader_load(loader);
+		if (loader->is_finish)
+		{
+			break;
+		}
+
+		printf("ts_queue is %d \n", is_block_queue_empty(loader->ts_pkt_queue));
+
+		while (!is_block_queue_empty(loader->ts_pkt_queue)) {
+			BYTE_LIST *ts_pkt = block_queue_poll(loader->ts_pkt_queue);
+			printf("ts_packet size:%d\n", ts_pkt->used_len);
+
+
+
+
+		}
+		i = 1;
+	}
+	ts_loader_destroy(loader);
+	return 0;
+}
+
+static int _create_loader_and_thread(OTTER_PLAYER *p, int time)
+{	
+	// 销毁加载器和线程
+	_destroy_loader_and_thread(p);
 
 	// 创建加载器
 	if (p->ts_loader == NULL)
 	{
-		TS_LOADER *loader = create_ts_loader(p->media_url, p->media_duration, p->ts_pkt_queue);
+		TS_LOADER *loader = create_ts_loader(p->media_url, p->media_duration, time, TS_LOAD_BUFFER_COUNT);
 		if (loader == NULL)
 		{
 			printf("can't create loadder!\n");
@@ -164,32 +214,15 @@ static int _create_loader(OTTER_PLAYER *p, int time)
 		p->ts_loader = loader;
 	}
 
-	// 创建线程
-	if (p->ts_load_thread == NULL)
-	{
-
-		TS_LOADER_PARAM param;
-		param.l = p->ts_loader;
-		param.pCurrentPlayTime = time;
-
-		if (pthread_create(p->ts_load_thread, NULL, (void *)ts_loader_seek_and_trans, &param) != 0)
-		{
-			printf("pthread_create failed!\n");
-			return -1;
-		}
-	}
+	// 创建线程  TODO
 
 	return 0;
 }
 
-static int _destroy_loader(OTTER_PLAYER *p)
+static int _destroy_loader_and_thread(OTTER_PLAYER *p)
 {
 	// 销毁旧线程
-	if (p->ts_load_thread != NULL)
-	{
-		pthread_exit(p->ts_load_thread);
-		p->ts_load_thread = NULL;
-	}
+	pthread_detach(p->ts_load_thread);
 
 	// 销毁旧加载器
 	if (p->ts_loader != NULL)
@@ -200,28 +233,9 @@ static int _destroy_loader(OTTER_PLAYER *p)
 	return 0;
 }
 
-static int _reset_player(OTTER_PLAYER *p)
-{
-	if (p == NULL) {
-		printf("player is null!\n");
-		return -1;
-	}
-	stop(p);
-	p->current_play_time = 0;
-	p->media_duration = 0;
-	p->media_url[0] = '\0';
-
-	// 销毁加载器
-	_destroy_loader(p);
-
-	// TODO
-
-	return 0;
-}
-
 int test_poll_ts_pkt(OTTER_PLAYER * p)
 {
-	BYTE_LIST *list = (BYTE_LIST *)block_queue_poll(p->ts_pkt_queue);
+	BYTE_LIST *list = (BYTE_LIST *)block_queue_poll(p->ts_loader->ts_pkt_queue);
 	printf("PLAYER_TEST>>ts_pkt_queue poll>> data_size:%d \n", list->used_len);
 	return 0;
 }

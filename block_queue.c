@@ -11,7 +11,6 @@ BLOCK_QUEUE * block_queue_create(int size)
 	newQueue->size = size;
 	newQueue->head = 0;
 	newQueue->tail = 0;
-	newQueue->msg_cond = PTHREAD_COND_INITIALIZER;
 
 	if (0 != pthread_mutex_init(&(newQueue->data_mutex), NULL))
 	{
@@ -20,7 +19,13 @@ BLOCK_QUEUE * block_queue_create(int size)
 		newQueue = NULL;
 		return NULL;
 	}
-
+	if (pthread_cond_init(&(newQueue->msg_cond), NULL) != 0)
+	{
+		pthread_mutex_destroy(&(newQueue->data_mutex));
+		printf("[%s]pthread_cond_init failed!\n", __FUNCTION__);
+		free(newQueue);
+		newQueue = NULL;
+	}
 	return newQueue;
 }
 
@@ -30,12 +35,7 @@ int block_queue_push(BLOCK_QUEUE *q, void *item)
 
 	if (is_block_queue_full(q))
 	{
-		struct timeval now;
-		struct timespec tsp;
-		gettimeofday(&now, NULL);
-		tsp.tv_sec = now.tv_sec + 20;
-		tsp.tv_nsec = now.tv_usec * 1000;
-		if (0 != pthread_cond_timedwait(&(q->msg_cond), &(q->data_mutex), &tsp))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
+		if (0 != pthread_cond_wait(&(q->msg_cond), &(q->data_mutex)))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
 		{
 			printf("[%s]: queue is full\n", __FUNCTION__);
 			pthread_mutex_unlock(&(q->data_mutex));
@@ -60,12 +60,7 @@ void * block_queue_poll(BLOCK_QUEUE *q)
 
 	if (is_block_queue_empty(q))
 	{
-		struct timeval now;
-		struct timespec tsp;
-		gettimeofday(&now, NULL);
-		tsp.tv_sec = now.tv_sec + 20;
-		tsp.tv_nsec = now.tv_usec * 1000;
-		if (0 != pthread_cond_timedwait(&(q->msg_cond), &(q->data_mutex), &tsp))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
+		if (0 != pthread_cond_wait(&(q->msg_cond), &(q->data_mutex)))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
 		{
 			printf("[%s]: queue is empty\n", __FUNCTION__);
 			pthread_mutex_unlock(&(q->data_mutex));
@@ -100,21 +95,10 @@ int is_block_queue_empty(BLOCK_QUEUE * q)
 	return 0;
 }
 
-int block_queue_clean(BLOCK_QUEUE * queue)
-{
-
-	while (!is_block_queue_empty(queue))
-	{ 
-		void * item = block_queue_poll(queue);
-		free(item);
-	};
-	return 0;
-}
-
 int block_queue_destory(BLOCK_QUEUE *queue)
 {
 	pthread_mutex_destroy(&(queue->data_mutex));
-	block_queue_clean(queue);
+	pthread_cond_destroy(&(queue->msg_cond));
 	free(queue);
 	return 0;
 }

@@ -1,10 +1,14 @@
 #pragma once
 #include <stdlib.h>
 #include <stdio.h>
-#include <pthread.h>
-#include <sys/time.h>
 
+#if defined(__EMSCRIPTEN__)
+#include <pthread.h>
+#else
+#include <pthread.h>
 #pragma comment(lib, "pthreadVC2.lib")
+#endif
+
 typedef struct BLOCK_QUEUE
 {
 	int size;

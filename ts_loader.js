@@ -1,5 +1,9 @@
 mergeInto(LibraryManager.library, {
-    XHRGet: function (url) {
-        return JS_XHRGet(Pointer_stringify(url));
+    _js_xhr_get_file_size: function (loadPtr, url) {
+        console.log("_js_xhr_get_file_size in!");
+        return JS_XHRGetFileSize(loadPtr, UTF8ToString(url));
+    },
+    _js_xhr_load_file: function (loadPtr, url, start, end) {
+        return JS_XHRGetFile(loadPtr, UTF8ToString(url), start, end);
     },
 })

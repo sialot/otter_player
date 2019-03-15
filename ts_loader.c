@@ -113,6 +113,12 @@ void ts_loader_load(TS_LOADER *l)
 	_get_file_data(l);
 
 	l->current_range += PKT_NUM_PER_TIME * 188;
+
+	if (l->media_file_size !=0 && l->current_range >= l->media_file_size)
+	{
+		l->is_finish = 1;
+	}
+
 	printf("ts_loader_load finish\n");
 }
 
@@ -224,7 +230,10 @@ EM_PORT_API(void) _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int
 	pthread_mutex_lock(&l->data_mutex);
 	printf("_xhr_on_load_success, len:%d \n", len);
 	if (len == 0)
+	{
+		l->is_finish = 1;
 		return;
+	}
 
 	BYTE_LIST *pkt = byte_list_create(len);
 	byte_list_add_list(pkt, bytes, len);

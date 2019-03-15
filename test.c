@@ -1,9 +1,31 @@
 ﻿
-#include "test.h"
+#include <stdio.h>
+#include <stdlib.h>
 
+#include <crtdbg.h>  
+
+//#include <libavcodec/avcodec.h>
+#include "ts_demuxer.h"
+//#include "block_queue.h"
+#include "player.h"
+
+int fileRead(char *filePath);
+
+#ifdef _DEBUG  
+#define new new(_NORMAL_BLOCK, __FILE__, __LINE__)  
+#endif  
+
+void EnableMemLeakCheck()
+{
+	int tmpFlag = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
+	tmpFlag |= _CRTDBG_LEAK_CHECK_DF;
+	_CrtSetDbgFlag(tmpFlag);
+}
 
 int main()
 {
+	EnableMemLeakCheck();
+	//_CrtSetBreakAlloc(136393);
 	/*
 	BYTE_LIST *a1 = byte_list_create(1);
 	BYTE_LIST *a2 = byte_list_create(2);
@@ -44,7 +66,7 @@ int main()
 
 	int r = fileRead("C:\\1.ts"); */
 
-
+	/*
 	OTTER_PLAYER *p = create_player(1280,720);
 	char media_url[128] = "http://10.0.9.229/pub/1.ts";
 	set_media(p, media_url, 6519);
@@ -52,6 +74,9 @@ int main()
 	play(p);
 
 	play_by_time(p, 3000);
+	*/
+
+	fileRead("C:\\1.ts");
 
 	system("pause");
 	return 0;
@@ -66,14 +91,18 @@ int fileRead(char *filePath) {
 		printf("file not exist!\n");
 	}
 
-	unsigned char pkt[188];
+	int rs = 0;
+	TS_DEMUXER *d = ts_demuxer_create(512);
+	do {
+		unsigned char *pkt = malloc(sizeof(unsigned char) * 188);
+		rs = fread(pkt, 188, 1, tsFile);
+		if(rs > 0)
+			demux_ts_pkt(d, pkt);
+		free(pkt);
+	} while (rs != 0);
 
+	ts_demuxer_destroy(d);
 
-	while (fread(pkt, 188, 1, tsFile) == 1) 
-	{
-		//receive_ts_packet(pkt);
-	}
-	   	 
 	if (fclose(tsFile))
 	{
 		printf("The file was not closed\n");

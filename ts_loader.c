@@ -116,8 +116,6 @@ void ts_loader_range_load(TS_LOADER *l)
 
 	_get_file_data(l);
 
-	l->current_range += PKT_NUM_PER_TIME * 188;
-
 	if (l->media_file_size !=0 && l->current_range >= l->media_file_size)
 	{
 		printf("l->current_range >= l->media_file_size .is_finish = 1\n");
@@ -165,6 +163,8 @@ void _get_file_data(TS_LOADER * l)
 	args.loaderPointer = l;
 	args.start = l->current_range;
 	args.end = l->current_range + PKT_NUM_PER_TIME * 188;
+	l->current_range += PKT_NUM_PER_TIME * 188;
+
 	printf("_get_file_data start, range: %d - %d / %d \n", args.start, args.end, l->media_file_size);
 
 	pthread_create(&l->wait_http_thread, NULL, _wait_http_result, (void *)&args);
@@ -176,7 +176,6 @@ void _get_file_data(TS_LOADER * l)
 // 获取文件大小
 void *_call_xhr_get_file_size(void * args)
 {
-	printf(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
 	_thread_param param = *(_thread_param *)args;
 	TS_LOADER *l = param.loaderPointer;
 	
@@ -209,7 +208,6 @@ EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, int size)
 // 加载文件
 void *_call_xhr_load_file(void * args)
 {
-	printf(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
 	_thread_param param = *(_thread_param *)args;
 	TS_LOADER *l = param.loaderPointer;
 

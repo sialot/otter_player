@@ -127,6 +127,10 @@ void ts_loader_range_load(TS_LOADER *l)
 void ts_loader_destroy(TS_LOADER * l)
 {
 	printf("ts_loader_destroy\n");
+
+	if (l == NULL)
+		return;
+
 	while (!is_block_queue_empty(l->ts_pkt_queue))
 	{
 		BYTE_LIST * item = (BYTE_LIST *)block_queue_poll(l->ts_pkt_queue);
@@ -220,7 +224,7 @@ void *_call_xhr_load_file(void * args)
 #if defined(__EMSCRIPTEN__)
 EM_PORT_API(void) _js_xhr_load_file(TS_LOADER * l, char * url, int start, int end);
 #else
-void _xhr_load_media_file(char * url, int start, int end) {};
+void _js_xhr_load_file(TS_LOADER * l, char * url, int start, int end) {};
 #endif
 
 // 回调方法

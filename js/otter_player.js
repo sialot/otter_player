@@ -51,7 +51,7 @@ function JS_XHRGetFile(loadPtr, url, start, end) {
                     console.log("C CALL JS, JS_XHRGetFile success");
                     Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, ptr, len]);
 
-                    console.log("JS_XHRGetFile free data ptr");
+                    // console.log("JS_XHRGetFile free data ptr");
                     Module._free(ptr);
                 } else {
                     console.log("C CALL JS, JS_XHRGetFile success but no data");

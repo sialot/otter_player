@@ -18,7 +18,7 @@
 #include "ts_loader.h"
 
 // 每次http请求加载的ts包数
-const int PKT_NUM_PER_TIME = 500;
+const int PKT_NUM_PER_TIME = 50;
 
 // 创建加载器
 TS_LOADER * create_ts_loader(char * mediaUrl, int duration, int start_time, int buffer_count)
@@ -90,6 +90,7 @@ TS_LOADER * create_ts_loader(char * mediaUrl, int duration, int start_time, int 
 	if (loader->start_time > loader->duration)
 	{
 		loader->current_range = loader->media_file_size;
+		printf("loader->start_time > loader->duration.is_finish = 1\n");
 		loader->is_finish = 1;
 	}
 
@@ -105,10 +106,13 @@ TS_LOADER * create_ts_loader(char * mediaUrl, int duration, int start_time, int 
 	return loader;
 }
 
-// 手动加载
-void ts_loader_load(TS_LOADER *l)
+// 部分加载数据
+void ts_loader_range_load(TS_LOADER *l)
 {
-	printf("ts_loader_load start\n");
+	if (l->is_finish)
+	{
+		return;
+	}
 
 	_get_file_data(l);
 
@@ -116,10 +120,9 @@ void ts_loader_load(TS_LOADER *l)
 
 	if (l->media_file_size !=0 && l->current_range >= l->media_file_size)
 	{
+		printf("l->current_range >= l->media_file_size .is_finish = 1\n");
 		l->is_finish = 1;
 	}
-
-	printf("ts_loader_load finish\n");
 }
 
 // 摧毁ts_loader
@@ -144,18 +147,15 @@ void _get_file_size(TS_LOADER * l)
 	{
 		return;
 	}
-	printf("_get_file_size start\n");
 	_thread_param args;
 	args.loaderPointer = l;
-	pthread_create(&l->http_thread, NULL, _call_xhr_get_file_size, (void *)&args);
+
 	pthread_create(&l->wait_http_thread, NULL, _wait_http_result, (void *)&args);
+	pthread_create(&l->http_thread, NULL, _call_xhr_get_file_size, (void *)&args);
 
 	// 等待结果返回
+	pthread_join(l->http_thread, NULL);
 	pthread_join(l->wait_http_thread, NULL);
-
-	// 销毁线程
-	pthread_detach(l->http_thread);
-	printf("_get_file_size finish\n");
 }
 
 // 获取文件数据
@@ -164,25 +164,25 @@ void _get_file_data(TS_LOADER * l)
 	_thread_param args;
 	args.loaderPointer = l;
 	args.start = l->current_range;
-	args.end = l->current_range + 188;
+	args.end = l->current_range + PKT_NUM_PER_TIME * 188;
+	printf("_get_file_data start, range: %d - %d / %d \n", args.start, args.end, l->media_file_size);
 
-	printf("_get_file_data start, range: %d - %d \n", args.start, args.end);
-
-	pthread_create(&l->http_thread, NULL, _call_xhr_load_file, (void *)&args);
 	pthread_create(&l->wait_http_thread, NULL, _wait_http_result, (void *)&args);
+	pthread_create(&l->http_thread, NULL, _call_xhr_load_file, (void *)&args);
+	pthread_join(l->http_thread, NULL);
 	pthread_join(l->wait_http_thread, NULL);
-	pthread_detach(l->http_thread);
-	printf("_get_file_data finish\n");
 }
 
 // 获取文件大小
 void *_call_xhr_get_file_size(void * args)
 {
+	printf(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
 	_thread_param param = *(_thread_param *)args;
 	TS_LOADER *l = param.loaderPointer;
 	
 	// 调用js函数
 	_js_xhr_get_file_size(l, l->media_url);
+	pthread_exit(NULL);
 	return NULL;
 }
 
@@ -198,7 +198,7 @@ EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, int size)
 {
 	pthread_mutex_lock(&l->data_mutex);
 	l->media_file_size = size;
-	printf("_xhr_on_file_size_success, size:%d\n", l->media_file_size);
+	//printf("_xhr_on_file_size_success, size:%d\n", l->media_file_size);
 
 	// 通知 _wait_xhr_get_file_size 结果已返回
 	pthread_cond_signal(&l->msg_cond);
@@ -207,8 +207,9 @@ EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, int size)
 
 
 // 加载文件
-void *_call_xhr_load_file(void * args) {
-
+void *_call_xhr_load_file(void * args)
+{
+	printf(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
 	_thread_param param = *(_thread_param *)args;
 	TS_LOADER *l = param.loaderPointer;
 
@@ -231,13 +232,18 @@ EM_PORT_API(void) _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int
 	printf("_xhr_on_load_success, len:%d \n", len);
 	if (len == 0)
 	{
+		printf("len=0.is_finish = 1\n");
 		l->is_finish = 1;
 		return;
 	}
 
-	BYTE_LIST *pkt = byte_list_create(len);
-	byte_list_add_list(pkt, bytes, len);
-	block_queue_push(l->ts_pkt_queue, pkt);
+	for (int i = 0; i < len/188; i++)
+	{
+		unsigned char * data = bytes + i * 188;
+		BYTE_LIST *pkt = byte_list_create(188);
+		byte_list_add_list(pkt, data, 188);
+		block_queue_push(l->ts_pkt_queue, pkt);
+	}
 	pthread_cond_signal(&l->msg_cond);
 	pthread_mutex_unlock(&l->data_mutex);
 }
@@ -256,6 +262,8 @@ void *_wait_http_result(void * args)
 		pthread_mutex_unlock(&(l->data_mutex));
 		return NULL;
 	}
+
+	printf("pthread_cond_wait over !\n");
 	pthread_mutex_unlock(&l->data_mutex);
 	return NULL;
 }

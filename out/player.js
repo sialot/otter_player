@@ -1128,11 +1128,11 @@ function updateGlobalBufferViews() {
 if (!ENVIRONMENT_IS_PTHREAD) { // Pthreads have already initialized these variables in src/worker.js, where they were passed to the thread worker at startup time
 
 var STATIC_BASE = 1024,
-    STACK_BASE = 8912,
+    STACK_BASE = 8944,
     STACKTOP = STACK_BASE,
-    STACK_MAX = 5251792,
-    DYNAMIC_BASE = 5251792,
-    DYNAMICTOP_PTR = 7856;
+    STACK_MAX = 5251824,
+    DYNAMIC_BASE = 5251824,
+    DYNAMICTOP_PTR = 7888;
 
 assert(STACK_BASE % 16 === 0, 'stack must start aligned');
 assert(DYNAMIC_BASE % 16 === 0, 'heap must start aligned');
@@ -1643,7 +1643,7 @@ function _emscripten_asm_const_ii(code, a0) {
 
 
 
-// STATICTOP = STATIC_BASE + 7888;
+// STATICTOP = STATIC_BASE + 7920;
 /* global initializers */ if (!ENVIRONMENT_IS_PTHREAD) __ATINIT__.push({ func: function() { ___emscripten_pthread_data_constructor() } });
 
 
@@ -1657,7 +1657,7 @@ memoryInitializer = "player.js.mem";
 
 /* no memory initializer */
 var tempDoublePtr;
-if (!ENVIRONMENT_IS_PTHREAD) tempDoublePtr = 8896;
+if (!ENVIRONMENT_IS_PTHREAD) tempDoublePtr = 8928;
 assert(tempDoublePtr % 8 == 0);
 
 function copyTempFloat(ptr) { // functions, because inlining this code increases code size too much
@@ -1696,7 +1696,7 @@ function copyTempDouble(ptr) {
   
   var __pthread_is_main_browser_thread=0; var PThread={MAIN_THREAD_ID:1,mainThreadInfo:{schedPolicy:0,schedPrio:0},unusedWorkerPool:[],runningWorkers:[],initMainThreadBlock:function () {
         if (ENVIRONMENT_IS_PTHREAD) return undefined;
-        PThread.mainThreadBlock = 8096;
+        PThread.mainThreadBlock = 8128;
   
         for (var i = 0; i < 244/4; ++i) HEAPU32[PThread.mainThreadBlock/4+i] = 0;
   
@@ -1709,7 +1709,7 @@ function copyTempDouble(ptr) {
         HEAP32[((headPtr)>>2)]=headPtr;
   
         // Allocate memory for thread-local storage.
-        var tlsMemory = 8352;
+        var tlsMemory = 8384;
         for (var i = 0; i < 128; ++i) HEAPU32[tlsMemory/4+i] = 0;
         Atomics.store(HEAPU32, (PThread.mainThreadBlock + 116 ) >> 2, tlsMemory); // Init thread-local-storage memory array.
         Atomics.store(HEAPU32, (PThread.mainThreadBlock + 52 ) >> 2, PThread.mainThreadBlock); // Main thread ID.
@@ -2073,7 +2073,7 @@ function copyTempDouble(ptr) {
     } 
 
   
-  var __main_thread_futex_wait_address; if (ENVIRONMENT_IS_PTHREAD) __main_thread_futex_wait_address = PthreadWorkerInit.__main_thread_futex_wait_address; else PthreadWorkerInit.__main_thread_futex_wait_address = __main_thread_futex_wait_address = 8880;function _emscripten_futex_wait(addr, val, timeout) {
+  var __main_thread_futex_wait_address; if (ENVIRONMENT_IS_PTHREAD) __main_thread_futex_wait_address = PthreadWorkerInit.__main_thread_futex_wait_address; else PthreadWorkerInit.__main_thread_futex_wait_address = __main_thread_futex_wait_address = 8912;function _emscripten_futex_wait(addr, val, timeout) {
       if (addr <= 0 || addr > HEAP8.length || addr&3 != 0) return -22;
   //    dump('futex_wait addr:' + addr + ' by thread: ' + _pthread_self() + (ENVIRONMENT_IS_PTHREAD?'(pthread)':'') + '\n');
       if (ENVIRONMENT_IS_WORKER) {
@@ -2672,6 +2672,16 @@ function copyTempDouble(ptr) {
     }
 
   
+  function _exit(status) {
+      // void _exit(int status);
+      // http://pubs.opengroup.org/onlinepubs/000095399/functions/exit.html
+      exit(status);
+    }function _pthread_exit(status) {
+      if (!ENVIRONMENT_IS_PTHREAD) _exit(status);
+      else PThread.threadExit(status);
+    }
+
+  
   function __cleanup_thread(pthread_ptr) {
       if (ENVIRONMENT_IS_PTHREAD) throw 'Internal Error! _cleanup_thread() can only ever be called from main application thread!';
       if (!pthread_ptr) throw 'Internal Error! Null pthread_ptr in _cleanup_thread!';
@@ -2796,7 +2806,7 @@ function intArrayToString(array) {
 
 
 var debug_table_i = ["0"];
-var debug_table_ii = ["0", "___stdio_close", "0", "0", "0", "__call_xhr_get_file_size", "__wait_http_result", "__call_xhr_load_file", "___emscripten_thread_main", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_ii = ["0", "___stdio_close", "0", "0", "0", "__wait_http_result", "__call_xhr_get_file_size", "__call_xhr_load_file", "___emscripten_thread_main", "0", "0", "0", "0", "0", "0", "0"];
 var debug_table_iii = ["0"];
 var debug_table_iiii = ["0", "0", "___stdout_write", "___stdio_seek", "_sn_write", "0", "0", "0", "0", "___stdio_write", "0", "0", "0", "0", "0", "0"];
 var debug_table_iiiii = ["0"];
@@ -2893,7 +2903,7 @@ function nullFunc_viiiiiiiiiii(x) { err("Invalid function pointer '" + x + "' ca
 
 var asmGlobalArg = {}
 
-var asmLibraryArg = { "abort": abort, "setTempRet0": setTempRet0, "getTempRet0": getTempRet0, "abortStackOverflow": abortStackOverflow, "nullFunc_i": nullFunc_i, "nullFunc_ii": nullFunc_ii, "nullFunc_iii": nullFunc_iii, "nullFunc_iiii": nullFunc_iiii, "nullFunc_iiiii": nullFunc_iiiii, "nullFunc_iiiiii": nullFunc_iiiiii, "nullFunc_iiiiiii": nullFunc_iiiiiii, "nullFunc_iiiiiiii": nullFunc_iiiiiiii, "nullFunc_iiiiiiiii": nullFunc_iiiiiiiii, "nullFunc_iiiiiiiiii": nullFunc_iiiiiiiiii, "nullFunc_v": nullFunc_v, "nullFunc_vf": nullFunc_vf, "nullFunc_vff": nullFunc_vff, "nullFunc_vfff": nullFunc_vfff, "nullFunc_vffff": nullFunc_vffff, "nullFunc_vi": nullFunc_vi, "nullFunc_vif": nullFunc_vif, "nullFunc_viff": nullFunc_viff, "nullFunc_vifff": nullFunc_vifff, "nullFunc_viffff": nullFunc_viffff, "nullFunc_vii": nullFunc_vii, "nullFunc_viif": nullFunc_viif, "nullFunc_viifi": nullFunc_viifi, "nullFunc_viii": nullFunc_viii, "nullFunc_viiii": nullFunc_viiii, "nullFunc_viiiii": nullFunc_viiiii, "nullFunc_viiiiii": nullFunc_viiiiii, "nullFunc_viiiiiii": nullFunc_viiiiiii, "nullFunc_viiiiiiii": nullFunc_viiiiiiii, "nullFunc_viiiiiiiii": nullFunc_viiiiiiiii, "nullFunc_viiiiiiiiii": nullFunc_viiiiiiiiii, "nullFunc_viiiiiiiiiii": nullFunc_viiiiiiiiiii, "___assert_fail": ___assert_fail, "___call_main": ___call_main, "___clock_gettime": ___clock_gettime, "___lock": ___lock, "___setErrNo": ___setErrNo, "___syscall140": ___syscall140, "___syscall146": ___syscall146, "___syscall54": ___syscall54, "___syscall6": ___syscall6, "___unlock": ___unlock, "__cleanup_thread": __cleanup_thread, "__findCanvasEventTarget": __findCanvasEventTarget, "__findEventTarget": __findEventTarget, "__js_xhr_get_file_size": __js_xhr_get_file_size, "__js_xhr_load_file": __js_xhr_load_file, "__pthread_testcancel_js": __pthread_testcancel_js, "__spawn_thread": __spawn_thread, "_clock_gettime": _clock_gettime, "_emscripten_asm_const_i": _emscripten_asm_const_i, "_emscripten_asm_const_ii": _emscripten_asm_const_ii, "_emscripten_conditional_set_current_thread_status_js": _emscripten_conditional_set_current_thread_status_js, "_emscripten_futex_wait": _emscripten_futex_wait, "_emscripten_futex_wake": _emscripten_futex_wake, "_emscripten_get_heap_size": _emscripten_get_heap_size, "_emscripten_get_now": _emscripten_get_now, "_emscripten_get_now_is_monotonic": _emscripten_get_now_is_monotonic, "_emscripten_has_threading_support": _emscripten_has_threading_support, "_emscripten_memcpy_big": _emscripten_memcpy_big, "_emscripten_proxy_to_main_thread_js": _emscripten_proxy_to_main_thread_js, "_emscripten_receive_on_main_thread_js": _emscripten_receive_on_main_thread_js, "_emscripten_resize_heap": _emscripten_resize_heap, "_emscripten_set_canvas_element_size": _emscripten_set_canvas_element_size, "_emscripten_set_canvas_element_size_calling_thread": _emscripten_set_canvas_element_size_calling_thread, "_emscripten_set_canvas_element_size_main_thread": _emscripten_set_canvas_element_size_main_thread, "_emscripten_set_current_thread_status_js": _emscripten_set_current_thread_status_js, "_emscripten_set_offscreencanvas_size_on_target_thread": _emscripten_set_offscreencanvas_size_on_target_thread, "_emscripten_set_offscreencanvas_size_on_target_thread_js": _emscripten_set_offscreencanvas_size_on_target_thread_js, "_emscripten_set_thread_name_js": _emscripten_set_thread_name_js, "_emscripten_syscall": _emscripten_syscall, "_emscripten_webgl_create_context": _emscripten_webgl_create_context, "_pthread_create": _pthread_create, "_pthread_detach": _pthread_detach, "_pthread_getschedparam": _pthread_getschedparam, "_pthread_join": _pthread_join, "abortOnCannotGrowMemory": abortOnCannotGrowMemory, "flush_NO_FILESYSTEM": flush_NO_FILESYSTEM, "stringToNewUTF8": stringToNewUTF8, "tempDoublePtr": tempDoublePtr, "DYNAMICTOP_PTR": DYNAMICTOP_PTR }
+var asmLibraryArg = { "abort": abort, "setTempRet0": setTempRet0, "getTempRet0": getTempRet0, "abortStackOverflow": abortStackOverflow, "nullFunc_i": nullFunc_i, "nullFunc_ii": nullFunc_ii, "nullFunc_iii": nullFunc_iii, "nullFunc_iiii": nullFunc_iiii, "nullFunc_iiiii": nullFunc_iiiii, "nullFunc_iiiiii": nullFunc_iiiiii, "nullFunc_iiiiiii": nullFunc_iiiiiii, "nullFunc_iiiiiiii": nullFunc_iiiiiiii, "nullFunc_iiiiiiiii": nullFunc_iiiiiiiii, "nullFunc_iiiiiiiiii": nullFunc_iiiiiiiiii, "nullFunc_v": nullFunc_v, "nullFunc_vf": nullFunc_vf, "nullFunc_vff": nullFunc_vff, "nullFunc_vfff": nullFunc_vfff, "nullFunc_vffff": nullFunc_vffff, "nullFunc_vi": nullFunc_vi, "nullFunc_vif": nullFunc_vif, "nullFunc_viff": nullFunc_viff, "nullFunc_vifff": nullFunc_vifff, "nullFunc_viffff": nullFunc_viffff, "nullFunc_vii": nullFunc_vii, "nullFunc_viif": nullFunc_viif, "nullFunc_viifi": nullFunc_viifi, "nullFunc_viii": nullFunc_viii, "nullFunc_viiii": nullFunc_viiii, "nullFunc_viiiii": nullFunc_viiiii, "nullFunc_viiiiii": nullFunc_viiiiii, "nullFunc_viiiiiii": nullFunc_viiiiiii, "nullFunc_viiiiiiii": nullFunc_viiiiiiii, "nullFunc_viiiiiiiii": nullFunc_viiiiiiiii, "nullFunc_viiiiiiiiii": nullFunc_viiiiiiiiii, "nullFunc_viiiiiiiiiii": nullFunc_viiiiiiiiiii, "___assert_fail": ___assert_fail, "___call_main": ___call_main, "___clock_gettime": ___clock_gettime, "___lock": ___lock, "___setErrNo": ___setErrNo, "___syscall140": ___syscall140, "___syscall146": ___syscall146, "___syscall54": ___syscall54, "___syscall6": ___syscall6, "___unlock": ___unlock, "__cleanup_thread": __cleanup_thread, "__findCanvasEventTarget": __findCanvasEventTarget, "__findEventTarget": __findEventTarget, "__js_xhr_get_file_size": __js_xhr_get_file_size, "__js_xhr_load_file": __js_xhr_load_file, "__pthread_testcancel_js": __pthread_testcancel_js, "__spawn_thread": __spawn_thread, "_clock_gettime": _clock_gettime, "_emscripten_asm_const_i": _emscripten_asm_const_i, "_emscripten_asm_const_ii": _emscripten_asm_const_ii, "_emscripten_conditional_set_current_thread_status_js": _emscripten_conditional_set_current_thread_status_js, "_emscripten_futex_wait": _emscripten_futex_wait, "_emscripten_futex_wake": _emscripten_futex_wake, "_emscripten_get_heap_size": _emscripten_get_heap_size, "_emscripten_get_now": _emscripten_get_now, "_emscripten_get_now_is_monotonic": _emscripten_get_now_is_monotonic, "_emscripten_has_threading_support": _emscripten_has_threading_support, "_emscripten_memcpy_big": _emscripten_memcpy_big, "_emscripten_proxy_to_main_thread_js": _emscripten_proxy_to_main_thread_js, "_emscripten_receive_on_main_thread_js": _emscripten_receive_on_main_thread_js, "_emscripten_resize_heap": _emscripten_resize_heap, "_emscripten_set_canvas_element_size": _emscripten_set_canvas_element_size, "_emscripten_set_canvas_element_size_calling_thread": _emscripten_set_canvas_element_size_calling_thread, "_emscripten_set_canvas_element_size_main_thread": _emscripten_set_canvas_element_size_main_thread, "_emscripten_set_current_thread_status_js": _emscripten_set_current_thread_status_js, "_emscripten_set_offscreencanvas_size_on_target_thread": _emscripten_set_offscreencanvas_size_on_target_thread, "_emscripten_set_offscreencanvas_size_on_target_thread_js": _emscripten_set_offscreencanvas_size_on_target_thread_js, "_emscripten_set_thread_name_js": _emscripten_set_thread_name_js, "_emscripten_syscall": _emscripten_syscall, "_emscripten_webgl_create_context": _emscripten_webgl_create_context, "_exit": _exit, "_pthread_create": _pthread_create, "_pthread_detach": _pthread_detach, "_pthread_exit": _pthread_exit, "_pthread_getschedparam": _pthread_getschedparam, "_pthread_join": _pthread_join, "abortOnCannotGrowMemory": abortOnCannotGrowMemory, "flush_NO_FILESYSTEM": flush_NO_FILESYSTEM, "stringToNewUTF8": stringToNewUTF8, "tempDoublePtr": tempDoublePtr, "DYNAMICTOP_PTR": DYNAMICTOP_PTR }
 // EMSCRIPTEN_START_ASM
 var asm =Module["asm"]// EMSCRIPTEN_END_ASM
 (asmGlobalArg, asmLibraryArg, buffer);
@@ -4056,7 +4066,7 @@ function JS_XHRGetFile(loadPtr, url, start, end) {
                     console.log("C CALL JS, JS_XHRGetFile success");
                     Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, ptr, len]);
 
-                    console.log("JS_XHRGetFile free data ptr");
+                    // console.log("JS_XHRGetFile free data ptr");
                     Module._free(ptr);
                 } else {
                     console.log("C CALL JS, JS_XHRGetFile success but no data");

@@ -35,7 +35,7 @@ typedef struct _thread_param {
 } _thread_param;
 
 TS_LOADER * create_ts_loader(char *pMediaUrl, int duration, int start_time, int buffer_count);
-void ts_loader_load(TS_LOADER *l);
+void ts_loader_range_load(TS_LOADER *l);
 void ts_loader_destroy(TS_LOADER *l);
 
 void _get_file_size(TS_LOADER * l);

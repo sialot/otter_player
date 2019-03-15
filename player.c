@@ -172,26 +172,13 @@ int _get_media_start_timestamp(OTTER_PLAYER * p)
 
 	TS_LOADER *loader = create_ts_loader(p->media_url, p->media_duration, 0, TS_LOAD_BUFFER_COUNT);
 
-	int i = 0;
-	while (i == 0)
+	while (!loader->is_finish)
 	{
-		ts_loader_load(loader);
-		if (loader->is_finish)
-		{
-			break;
-		}
-
-		printf("ts_queue is %d \n", is_block_queue_empty(loader->ts_pkt_queue));
-
+		ts_loader_range_load(loader);
 		while (!is_block_queue_empty(loader->ts_pkt_queue)) {
 			BYTE_LIST *ts_pkt = block_queue_poll(loader->ts_pkt_queue);
 			printf("ts_packet size:%d\n", ts_pkt->used_len);
-
-
-
-
 		}
-		i = 1;
 	}
 	ts_loader_destroy(loader);
 	return 0;

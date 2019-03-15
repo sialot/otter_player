@@ -36,7 +36,7 @@ typedef struct _thread_param {
 } _thread_param;
 
 // 创建加载器
-TS_LOADER * create_ts_loader(char *pMediaUrl, int duration, int start_time, int buffer_count);
+TS_LOADER * ts_loader_create(char *pMediaUrl, int duration, int start_time, int buffer_count);
 
 // 范围加载（部分加载，每次调用按PKT_NUM_PER_TIME向后加载）
 void ts_loader_range_load(TS_LOADER *l);

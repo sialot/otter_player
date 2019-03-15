@@ -170,7 +170,7 @@ int _get_media_start_timestamp(OTTER_PLAYER * p)
 {
 	printf("_get_media_start_timestamp\n");
 
-	TS_LOADER *loader = create_ts_loader(p->media_url, p->media_duration, 0, TS_LOAD_BUFFER_COUNT);
+	TS_LOADER *loader = ts_loader_create(p->media_url, p->media_duration, 0, TS_LOAD_BUFFER_COUNT);
 
 	while (!loader->is_finish)
 	{
@@ -193,7 +193,7 @@ static int _create_loader_and_thread(OTTER_PLAYER *p, int time)
 	// ´´½¨¼ÓÔØÆ÷
 	if (p->ts_loader == NULL)
 	{
-		TS_LOADER *loader = create_ts_loader(p->media_url, p->media_duration, time, TS_LOAD_BUFFER_COUNT);
+		TS_LOADER *loader = ts_loader_create(p->media_url, p->media_duration, time, TS_LOAD_BUFFER_COUNT);
 		if (loader == NULL)
 		{
 			printf("can't create loadder!\n");

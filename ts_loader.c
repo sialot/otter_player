@@ -21,7 +21,7 @@
 const int PKT_NUM_PER_TIME = 50;
 
 // 创建加载器
-TS_LOADER * create_ts_loader(char * mediaUrl, int duration, int start_time, int buffer_count)
+TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time, int buffer_count)
 {
 	if (start_time < 0)
 	{
@@ -207,7 +207,6 @@ EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, int size)
 	pthread_cond_signal(&l->msg_cond);
 	pthread_mutex_unlock(&l->data_mutex);
 }
-
 
 // 加载文件
 void *_call_xhr_load_file(void * args)

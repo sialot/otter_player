@@ -30,6 +30,4 @@ static HASH_MAP_ENTRY * entry_create(int key, void *value);
 
 static int key_array_add(HASH_MAP * map, HASH_MAP_ENTRY *entry);
 
-// void hash_map_free(HASH_MAP *map);
-
-// static void hash_map_entry_free(HASH_MAP_ENTRY *entry);
+void hash_map_free(HASH_MAP *map);

@@ -4,6 +4,21 @@
 #include <string.h>
 #include "byte_list.h"
 #include "hash_map.h"
+#include "block_queue.h"
+
+// ts解封装器
+typedef struct TS_DEMUXER
+{
+	TS_PAT *global_pat; // 全局表
+	TS_PMT *global_pmt; // 全局映射表
+	HASH_MAP *global_buffer_map; // 缓存map
+	int cur_program_num;   // 当前节目号
+	int temp_programs_count;  // 临时节目总数
+	TS_PAT_PROGRAM *temp_programs;
+	int temp_streams_count;  // 临时流总数
+	TS_PMT_STREAM *temp_streams;
+	BLOCK_QUEUE *pes_pkt_queue;
+} TS_DEMUXER;
 
 // ts 头
 typedef struct TS_HEADER
@@ -118,33 +133,34 @@ typedef struct TS_PES_PACKET
 	int es_data_len;
 } TS_PES_PACKET;
 
-// 输入ts包数据
-int receive_ts_packet(unsigned char *pTsBuf);
-int receive_ts_packet_by_program_num(unsigned char *pTsBuf, int programNum);
+TS_DEMUXER *create_ts_demuxer(int buffer_count);
+int receive_ts_packet(TS_DEMUXER *d, unsigned char *pTsBuf);
+int receive_ts_packet_by_program_num(TS_DEMUXER *d, unsigned char *pTsBuf, int programNum);
+void ts_demuxer_destroy(TS_DEMUXER *d);
 
 // 读取ts包头
-static int read_ts_head(unsigned char *pTsBuf, TS_HEADER *pHeader);
+static int _read_ts_head(TS_DEMUXER *d, unsigned char *pTsBuf, TS_HEADER *pHeader);
 
 // 读取适配域
-static int read_adaption_field(unsigned char *pTsBuf, TS_HEADER *pHeader);
+static int _read_adaption_field(TS_DEMUXER *d, unsigned char *pTsBuf, TS_HEADER *pHeader);
 
 // 读取有效载荷
-static int read_payload(unsigned char *pTsBuf, TS_HEADER *pHeader);
+static int _read_payload(TS_DEMUXER *d, unsigned char *pTsBuf, TS_HEADER *pHeader);
 
 // 解析PAT
-static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader);
+static int _read_ts_PAT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader);
 
 // 提交pat表
-static int ts_pat_submit(TS_PAT pat);
+static int _ts_pat_submit(TS_DEMUXER *d, TS_PAT pat);
 
 // 解析PMT
-static int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader);
+static int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader);
 
 // 提交pmt表
-static int ts_pmt_submit(TS_PMT pat);
+static int _ts_pmt_submit(TS_DEMUXER *d, TS_PMT pat);
 
 // 输入pes载荷
-static int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader);
+static int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader);
 
 // 解析pes包
-static int read_pes(BYTE_LIST * pPesByteList);
+static int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList);

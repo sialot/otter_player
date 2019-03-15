@@ -178,6 +178,7 @@ int _get_media_start_timestamp(OTTER_PLAYER * p)
 		while (!is_block_queue_empty(loader->ts_pkt_queue)) {
 			BYTE_LIST *ts_pkt = block_queue_poll(loader->ts_pkt_queue);
 			printf("ts_packet size:%d\n", ts_pkt->used_len);
+			byte_list_free(ts_pkt);
 		}
 	}
 	ts_loader_destroy(loader);

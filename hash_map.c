@@ -130,6 +130,14 @@ static int key_array_add(HASH_MAP * map, HASH_MAP_ENTRY *entry)
 	map->array_len++;
 	return 0;
 }
+void hash_map_free(HASH_MAP * map)
+{
+	if (map == NULL)
+		return;
+
+	free(map->table);
+	free(map);
+}
 /*
 void hash_map_free(HASH_MAP *map)
 {

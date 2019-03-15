@@ -2,29 +2,49 @@
 
 static const TS_PKT_LEN = 188;
 
-// 全局表
-static TS_PAT *GLOBAL_PAT = NULL;
-static TS_PMT *GLOBAL_PMT = NULL; // 当前节目
+TS_DEMUXER * create_ts_demuxer(int buffer_count)
+{
+	TS_DEMUXER *d = (TS_DEMUXER *)malloc(sizeof(TS_DEMUXER));
+	if (d == NULL)
+	{
+		printf("create_ts_demuxer failed. \n");
+		return NULL;
+	}
+	d->global_pat = NULL;
+	d->global_pmt = NULL;
 
-// 全局当前节目号
-static int CUR_PROGRAM_NUM = -1;
+	HASH_MAP *map = hash_map_create();
+	if (map == NULL)
+	{
+		printf("create_ts_demuxer failed. global_buffer_map create failed \n");
+		free(d);
+		return NULL;
+	}
+	d->global_buffer_map = map;
+	d->cur_program_num = -1;
+	d->temp_programs_count = 0;
+	d->temp_streams_count = 0;
+	d->temp_programs = NULL;
+	d->temp_streams = NULL;
 
-// 全局buffer map
-static HASH_MAP GLOBAL_HASH_MAP = {NULL,0,0};
-
-// 临时program/stream列表
-static int temp_programs_count = 0; // 全局节目数
-static TS_PAT_PROGRAM *temp_programs = NULL; // 全局节目数组指针
-static int temp_streams_count = 0; // 全局流总数
-static TS_PMT_STREAM *temp_streams = NULL; // 全局流数组指针
-
+	BLOCK_QUEUE *pes_pkt_queue = block_queue_create(buffer_count);
+	if (pes_pkt_queue == NULL)
+	{
+		printf("[%s]ts_pkt_queue init failed!\n", __FUNCTION__);
+		hash_map_free(d->global_buffer_map);
+		free(d);
+		return NULL;
+	}
+	d->pes_pkt_queue = pes_pkt_queue;
+	return d;
+}
 
 // 输入ts包数据
-int receive_ts_packet(unsigned char * pTsBuf)
+int receive_ts_packet(TS_DEMUXER *d, unsigned char * pTsBuf)
 {
 
 	TS_HEADER header = { sizeof(TS_HEADER),0 };
-	if (read_ts_head(pTsBuf, &header) != 0)
+	if (_read_ts_head(d, pTsBuf, &header) != 0)
 	{
 		return -1;
 	}
@@ -32,13 +52,13 @@ int receive_ts_packet(unsigned char * pTsBuf)
 	//printf("PID:%d \n", header.PID);
 
 	// 获取适配域
-	if (read_adaption_field(pTsBuf, &header) != 0)
+	if (_read_adaption_field(d, pTsBuf, &header) != 0)
 	{
 		return -1;
 	}
 
 	// 解析净荷
-	if (read_payload(pTsBuf, &header) != 0)
+	if (_read_payload(d, pTsBuf, &header) != 0)
 	{
 		return -1;
 	}
@@ -46,15 +66,62 @@ int receive_ts_packet(unsigned char * pTsBuf)
 	return 0;
 }
 
-int receive_ts_packet_by_program_num(unsigned char * pTsBuf, int programNum)
+int receive_ts_packet_by_program_num(TS_DEMUXER *d, unsigned char * pTsBuf, int programNum)
 {
-	CUR_PROGRAM_NUM = programNum;
-	receive_ts_packet(pTsBuf);
+	d->cur_program_num = programNum;
+	receive_ts_packet(d, pTsBuf);
 	return 0;
 }
 
+void ts_demuxer_destroy(TS_DEMUXER * d)
+{
+	if (d == NULL)
+	{
+		return;
+	}
+
+	// PAT
+	free(d->global_pat->pPrograms);
+	free(d->global_pat);
+
+	// PMT
+	free(d->global_pmt->pStreams->pEsInfoBytes);
+	free(d->global_pmt->pStreams);
+	free(d->global_pmt);
+
+	// MAP
+	for (int i = 0; i < d->global_buffer_map->array_len; i++)
+	{
+		HASH_MAP_ENTRY *cur;
+		HASH_MAP_ENTRY *entry = d->global_buffer_map->table[i];
+		do
+		{
+			cur = entry;
+			entry = entry->next;
+			byte_list_free(entry->value);
+			free(cur);
+		} while (entry != NULL);
+	}
+	hash_map_free(d->global_buffer_map);
+
+	// temp
+	free(d->temp_programs);
+	free(d->temp_streams);
+
+	// queue
+	while (!is_block_queue_empty(d->pes_pkt_queue))
+	{
+		BYTE_LIST * item = (BYTE_LIST *)block_queue_poll(d->pes_pkt_queue);
+		byte_list_free(item);
+	}
+	block_queue_destory(d->pes_pkt_queue);
+
+	// self
+	free(d);
+}
+
 // 读取ts包头
-static int read_ts_head(unsigned char * pTsBuf, TS_HEADER * pHeader)
+static int _read_ts_head(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 {
 	pHeader->sync_byte = pTsBuf[0];
 	if (pHeader->sync_byte != 0x47)
@@ -74,7 +141,7 @@ static int read_ts_head(unsigned char * pTsBuf, TS_HEADER * pHeader)
 }
 
 // 读取适配域
-static int read_adaption_field(unsigned char * pTsBuf, TS_HEADER * pHeader)
+static int _read_adaption_field(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 {
 	if (pHeader->adaptation_field_control == 0x2 ||
 		pHeader->adaptation_field_control == 0x3)
@@ -84,14 +151,14 @@ static int read_adaption_field(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	return 0;
 }
 // 读取有效载荷
-static int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
+static int _read_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 {
 	int rs = -1;
 
 	// 看是否为PAT信息
 	if (pHeader->PID == 0x0)
 	{
-		rs = read_ts_PAT(pTsBuf, pHeader);
+		rs = _read_ts_PAT(d, pTsBuf, pHeader);
 	}
 
 	// 是否为 BAT/SDT 信息
@@ -101,28 +168,28 @@ static int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	}
 
 	//  看是否为PMT信息
-	if (GLOBAL_PAT != NULL)
+	if (d->global_pat != NULL)
 	{
-		for (int i = 0; i < GLOBAL_PAT->program_count; i++) {
-			if (GLOBAL_PAT->pPrograms[i].PID == pHeader->PID) {
-				rs = read_ts_PMT(pTsBuf, pHeader);
+		for (int i = 0; i < d->global_pat->program_count; i++) {
+			if (d->global_pat->pPrograms[i].PID == pHeader->PID) {
+				rs = _read_ts_PMT(d, pTsBuf, pHeader);
 				break;
 			}
 		}
 	}
 
 	// 看是否为PES信息
-	if (GLOBAL_PMT != NULL)
+	if (d->global_pmt != NULL)
 	{
-		if (pHeader->PID == GLOBAL_PMT->main_video_PID ||
-			pHeader->PID == GLOBAL_PMT->main_audio_PID)
+		if (pHeader->PID == d->global_pmt->main_video_PID ||
+			pHeader->PID == d->global_pmt->main_audio_PID)
 		{
-			rs = receive_pes_payload(pTsBuf, pHeader);
+			rs = _receive_pes_payload(d, pTsBuf, pHeader);
 		}
 
-		/*for (int j = 0; j < GLOBAL_PMT->stream_count; j++) {
-			if (GLOBAL_PMT->pStreams[j].elementary_PID == pHeader->PID) {
-				rs = receive_pes_payload(pTsBuf, pHeader);
+		/*for (int j = 0; j < d->global_pmt->stream_count; j++) {
+			if (d->global_pmt->pStreams[j].elementary_PID == pHeader->PID) {
+				rs = _receive_pes_payload(pTsBuf, pHeader);
 			}
 		}*/
 	}
@@ -131,7 +198,7 @@ static int read_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 }
 
 // 解析PAT
-static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
+static int _read_ts_PAT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 {
 	int start = 4;
 	int adpataion_field_length = pTsBuf[4];
@@ -206,7 +273,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	// 循环数据数组起始
 	unsigned char * pLoopData = payload + loopStartPos;
 
-	BYTE_LIST * pat_loop_data_buffer = (BYTE_LIST *)hash_map_get(&GLOBAL_HASH_MAP, pHeader->PID);
+	BYTE_LIST * pat_loop_data_buffer = (BYTE_LIST *)hash_map_get(d->global_buffer_map, pHeader->PID);
 
 	// 当前段不是第一个pat包，加载旧字节数组
 	if (tempPat.section_number != 0x00)
@@ -214,7 +281,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		if (pat_loop_data_buffer == NULL)  // buffer未初始化
 		{
 			pat_loop_data_buffer = byte_list_create(loopLength);
-			hash_map_put(&GLOBAL_HASH_MAP, pHeader->PID, pat_loop_data_buffer);
+			hash_map_put(d->global_buffer_map, pHeader->PID, pat_loop_data_buffer);
 		}
 	}
 	else
@@ -224,7 +291,7 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			byte_list_clean(pat_loop_data_buffer);
 		}
 		pat_loop_data_buffer = byte_list_create(loopLength);
-		hash_map_put(&GLOBAL_HASH_MAP, pHeader->PID, pat_loop_data_buffer);
+		hash_map_put(d->global_buffer_map, pHeader->PID, pat_loop_data_buffer);
 	}
 	byte_list_add_list(pat_loop_data_buffer, pLoopData, loopLength);
 
@@ -242,29 +309,29 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		tempPat.program_count = pat_loop_data_buffer->used_len / 4;
 
 		// 当临时空间不够时申请空间或者扩容，否则直接覆盖临时空间
-		if(tempPat.program_count > temp_programs_count)
+		if(tempPat.program_count > d->temp_programs_count)
 		{
-			if (temp_programs != NULL) 
+			if (d->temp_programs != NULL) 
 			{
-				TS_PAT_PROGRAM * pProgramsNew = realloc(temp_programs, sizeof(TS_PAT_PROGRAM) * tempPat.program_count);
+				TS_PAT_PROGRAM * pProgramsNew = realloc(d->temp_programs, sizeof(TS_PAT_PROGRAM) * tempPat.program_count);
 				if (pProgramsNew == NULL)
 				{
-					free(temp_programs);
-					temp_programs = NULL;
+					free(d->temp_programs);
+					d->temp_programs = NULL;
 					return -1;
 				}
-				temp_programs = pProgramsNew;
+				d->temp_programs = pProgramsNew;
 			}
 			else
 			{
-				temp_programs = (TS_PAT_PROGRAM *)malloc(sizeof(TS_PAT_PROGRAM) * tempPat.program_count);
-				if (temp_programs == NULL)
+				d->temp_programs = (TS_PAT_PROGRAM *)malloc(sizeof(TS_PAT_PROGRAM) * tempPat.program_count);
+				if (d->temp_programs == NULL)
 				{
 					return -1;
 				}
 			}			
 		}
-		tempPat.pPrograms = temp_programs;
+		tempPat.pPrograms = d->temp_programs;
 
 		for (int i = 0; i < pat_loop_data_buffer->used_len; i += 4)
 		{
@@ -290,86 +357,86 @@ static int read_ts_PAT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		byte_list_clean(pat_loop_data_buffer);
 	}
 
-	ts_pat_submit(tempPat);
+	_ts_pat_submit(d, tempPat);
 
-	if ((CUR_PROGRAM_NUM == -1) && (GLOBAL_PAT->program_count >= 1)) {
-		CUR_PROGRAM_NUM = GLOBAL_PAT->pPrograms[0].program_number;
+	if ((d->cur_program_num == -1) && (d->global_pat->program_count >= 1)) {
+		d->cur_program_num = d->global_pat->pPrograms[0].program_number;
 	}
 
 	/* TESTS
-	for (int i = 0; i < GLOBAL_PAT->program_count; i++) {
+	for (int i = 0; i < d->global_pat->program_count; i++) {
 		
 		printf("program_number:%d,reserved:%d,PID:%d\n",
-			GLOBAL_PAT->pPrograms[i].program_number,
-			GLOBAL_PAT->pPrograms[i].reserved,
-			GLOBAL_PAT->pPrograms[i].PID);
+			d->global_pat->pPrograms[i].program_number,
+			d->global_pat->pPrograms[i].reserved,
+			d->global_pat->pPrograms[i].PID);
 	
 	}*/
 	return 0;
 }
 
 // 提交pat表
-static int ts_pat_submit(TS_PAT pat)
+static int _ts_pat_submit(TS_DEMUXER *d, TS_PAT pat)
 {
-	if (GLOBAL_PAT == NULL)
+	if (d->global_pat == NULL)
 	{
-		GLOBAL_PAT = (TS_PAT *)malloc(sizeof(TS_PAT));
-		if (GLOBAL_PAT == NULL)
+		d->global_pat = (TS_PAT *)malloc(sizeof(TS_PAT));
+		if (d->global_pat == NULL)
 		{
 			return -1;
 		}
-		GLOBAL_PAT->pPrograms = NULL;
-		GLOBAL_PAT->program_count = 0;
+		d->global_pat->pPrograms = NULL;
+		d->global_pat->program_count = 0;
 	}
 
-	GLOBAL_PAT->table_id = pat.table_id;
-	GLOBAL_PAT->section_syntax_indicator = pat.section_syntax_indicator;
-	GLOBAL_PAT->zero = pat.zero;
-	GLOBAL_PAT->reserved1 = pat.reserved1;
-	GLOBAL_PAT->section_length = pat.section_length;
-	GLOBAL_PAT->transport_stream_id = pat.transport_stream_id;
-	GLOBAL_PAT->reserved2 = pat.reserved2;
-	GLOBAL_PAT->version_number = pat.version_number;
-	GLOBAL_PAT->current_next_indicator = pat.current_next_indicator;
-	GLOBAL_PAT->section_number = pat.section_number;
-	GLOBAL_PAT->last_section_number = pat.last_section_number;
-	GLOBAL_PAT->networkPID = pat.networkPID;
-	GLOBAL_PAT->CRC = pat.CRC;
+	d->global_pat->table_id = pat.table_id;
+	d->global_pat->section_syntax_indicator = pat.section_syntax_indicator;
+	d->global_pat->zero = pat.zero;
+	d->global_pat->reserved1 = pat.reserved1;
+	d->global_pat->section_length = pat.section_length;
+	d->global_pat->transport_stream_id = pat.transport_stream_id;
+	d->global_pat->reserved2 = pat.reserved2;
+	d->global_pat->version_number = pat.version_number;
+	d->global_pat->current_next_indicator = pat.current_next_indicator;
+	d->global_pat->section_number = pat.section_number;
+	d->global_pat->last_section_number = pat.last_section_number;
+	d->global_pat->networkPID = pat.networkPID;
+	d->global_pat->CRC = pat.CRC;
 
 	// 新节目更多
-	if (GLOBAL_PAT->program_count < pat.program_count)
+	if (d->global_pat->program_count < pat.program_count)
 	{	
-		if (GLOBAL_PAT->pPrograms != NULL)
+		if (d->global_pat->pPrograms != NULL)
 		{
-			TS_PAT_PROGRAM * pProgramsNew = realloc(GLOBAL_PAT->pPrograms, sizeof(TS_PAT_PROGRAM) * pat.program_count);
+			TS_PAT_PROGRAM * pProgramsNew = realloc(d->global_pat->pPrograms, sizeof(TS_PAT_PROGRAM) * pat.program_count);
 			if (pProgramsNew == NULL)
 			{
-				free(GLOBAL_PAT);
-				GLOBAL_PAT = NULL;
+				free(d->global_pat);
+				d->global_pat = NULL;
 				return -1;
 			}
-			GLOBAL_PAT->pPrograms = pProgramsNew;
+			d->global_pat->pPrograms = pProgramsNew;
 		}
 		else
 		{
 			TS_PAT_PROGRAM * pProgramsNew = malloc(sizeof(TS_PAT_PROGRAM) * pat.program_count);
 			if (pProgramsNew == NULL)
 			{
-				free(GLOBAL_PAT);
-				GLOBAL_PAT = NULL;
+				free(d->global_pat);
+				d->global_pat = NULL;
 				return -1;
 			}
-			GLOBAL_PAT->pPrograms = pProgramsNew;
+			d->global_pat->pPrograms = pProgramsNew;
 		}		
 	}
-	GLOBAL_PAT->program_count = pat.program_count;
+	d->global_pat->program_count = pat.program_count;
 
-	memcpy(GLOBAL_PAT->pPrograms, pat.pPrograms, sizeof(TS_PAT_PROGRAM) * pat.program_count);
+	memcpy(d->global_pat->pPrograms, pat.pPrograms, sizeof(TS_PAT_PROGRAM) * pat.program_count);
 	return 0;
 }
 
 // 解析PMT
-int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
+int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 {
 	int start = 4;
 	int adpataion_field_length = pTsBuf[4];
@@ -406,7 +473,7 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	tempPmt.program_info_length = ((payload[10] & 0xf) << 8) | payload[11];
 
 	// 不是当前节目的pmt包，舍弃
-	if (CUR_PROGRAM_NUM != tempPmt.program_number)
+	if (d->cur_program_num != tempPmt.program_number)
 	{
 		return 0;
 	}
@@ -445,12 +512,12 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	if (tempPmt.program_info_length != 0x0)
 	{
 		int key = 0x1 << 13 | pHeader->PID;
-		BYTE_LIST *pmt_program_info_buffer = (BYTE_LIST *)hash_map_get(&GLOBAL_HASH_MAP, key);
+		BYTE_LIST *pmt_program_info_buffer = (BYTE_LIST *)hash_map_get(d->global_buffer_map, key);
 
 		if (pmt_program_info_buffer == NULL)
 		{
 			pmt_program_info_buffer = byte_list_create(tempPmt.program_info_length);
-			hash_map_put(&GLOBAL_HASH_MAP, key, pmt_program_info_buffer);
+			hash_map_put(d->global_buffer_map, key, pmt_program_info_buffer);
 		}
 		else
 		{
@@ -468,7 +535,7 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	// 循环数据数组起始
 	unsigned char * pLoopData = payload + loopStartPos;
 	
-	BYTE_LIST *pmt_loop_data_buffer = (BYTE_LIST *)hash_map_get(&GLOBAL_HASH_MAP, pHeader->PID);
+	BYTE_LIST *pmt_loop_data_buffer = (BYTE_LIST *)hash_map_get(d->global_buffer_map, pHeader->PID);
 
 	// 当前段不是第一个pat包，加载旧字节数组
 	if (tempPmt.section_number != 0x00)
@@ -476,7 +543,7 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		if (pmt_loop_data_buffer == NULL)  // buffer未初始化
 		{
 			pmt_loop_data_buffer = byte_list_create(loopLength);
-			hash_map_put(&GLOBAL_HASH_MAP,pHeader->PID,pmt_loop_data_buffer);
+			hash_map_put(d->global_buffer_map,pHeader->PID,pmt_loop_data_buffer);
 		}
 	}
 	else
@@ -486,7 +553,7 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			byte_list_clean(pmt_loop_data_buffer);
 		}
 		pmt_loop_data_buffer = byte_list_create(loopLength);
-		hash_map_put(&GLOBAL_HASH_MAP, pHeader->PID, pmt_loop_data_buffer);
+		hash_map_put(d->global_buffer_map, pHeader->PID, pmt_loop_data_buffer);
 	}
 	byte_list_add_list(pmt_loop_data_buffer, pLoopData, loopLength);
 
@@ -510,29 +577,29 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		tempPmt.stream_count = streamcount;
 
 		// 当临时空间不够时申请空间或者扩容，否则直接覆盖临时空间
-		if (streamcount > temp_streams_count)
+		if (streamcount > d->temp_streams_count)
 		{
-			if (temp_streams != NULL)
+			if (d->temp_streams != NULL)
 			{
-				TS_PMT_STREAM * pStreamsNew = realloc(temp_streams, sizeof(TS_PMT_STREAM) * tempPmt.stream_count);
+				TS_PMT_STREAM * pStreamsNew = realloc(d->temp_streams, sizeof(TS_PMT_STREAM) * tempPmt.stream_count);
 				if (pStreamsNew == NULL)
 				{
-					free(temp_streams);
-					temp_streams = NULL;
+					free(d->temp_streams);
+					d->temp_streams = NULL;
 					return -1;
 				}
-				temp_streams = pStreamsNew;
+				d->temp_streams = pStreamsNew;
 			}
 			else
 			{
-				temp_streams = (TS_PMT_STREAM *)malloc(sizeof(TS_PMT_STREAM) * tempPmt.stream_count);
-				if (temp_streams == NULL)
+				d->temp_streams = (TS_PMT_STREAM *)malloc(sizeof(TS_PMT_STREAM) * tempPmt.stream_count);
+				if (d->temp_streams == NULL)
 				{
 					return -1;
 				}
 			}
 		}
-		tempPmt.pStreams = temp_streams;
+		tempPmt.pStreams = d->temp_streams;
 
 		pos = 0;
 		streamcount = 0;
@@ -559,95 +626,95 @@ int read_ts_PMT(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		// 清空data
 		byte_list_clean(pmt_loop_data_buffer);
 	}
-	ts_pmt_submit(tempPmt);
+	_ts_pmt_submit(d, tempPmt);
 	
-	/*for (int i = 0; i < GLOBAL_PMT->stream_count; i++) {
+	/*for (int i = 0; i < d->global_pmt->stream_count; i++) {
 
 		printf("stream_type:%d,elementary_PID:%d,ES_info_length:%d\n",
-			GLOBAL_PMT->pStreams[i].stream_type,
-			GLOBAL_PMT->pStreams[i].elementary_PID,
-			GLOBAL_PMT->pStreams[i].ES_info_length);
+			d->global_pmt->pStreams[i].stream_type,
+			d->global_pmt->pStreams[i].elementary_PID,
+			d->global_pmt->pStreams[i].ES_info_length);
 	}*/
 
 	return 0;
 }
 
 // 提交pmt表
-int ts_pmt_submit(TS_PMT pmt)
+int _ts_pmt_submit(TS_DEMUXER *d, TS_PMT pmt)
 {
-	if (GLOBAL_PMT == NULL)
+	if (d->global_pmt == NULL)
 	{
-		GLOBAL_PMT = (TS_PMT *)malloc(sizeof(TS_PMT));
-		if (GLOBAL_PMT == NULL)
+		d->global_pmt = (TS_PMT *)malloc(sizeof(TS_PMT));
+		if (d->global_pmt == NULL)
 		{
 			return -1;
 		}
-		GLOBAL_PMT->pStreams = NULL;
-		GLOBAL_PMT->stream_count = 0;
+		d->global_pmt->pStreams = NULL;
+		d->global_pmt->stream_count = 0;
 	}
 
-	GLOBAL_PMT->table_id = pmt.table_id;
-	GLOBAL_PMT->section_syntax_indicator = pmt.section_syntax_indicator;
-	GLOBAL_PMT->zero = pmt.zero;
-	GLOBAL_PMT->reserved1 = pmt.reserved1;
-	GLOBAL_PMT->section_length = pmt.section_length;
-	GLOBAL_PMT->program_number = pmt.program_number;
-	GLOBAL_PMT->reserved2 = pmt.reserved2;
-	GLOBAL_PMT->version_number = pmt.version_number;
-	GLOBAL_PMT->current_next_indicator = pmt.current_next_indicator;
-	GLOBAL_PMT->section_number = pmt.section_number;
-	GLOBAL_PMT->last_section_number = pmt.last_section_number;
-	GLOBAL_PMT->reserved3 = pmt.reserved3;
-	GLOBAL_PMT->PCR_PID = pmt.PCR_PID;
-	GLOBAL_PMT->reserved4 = pmt.reserved4;
-	GLOBAL_PMT->program_info_length = pmt.program_info_length;
+	d->global_pmt->table_id = pmt.table_id;
+	d->global_pmt->section_syntax_indicator = pmt.section_syntax_indicator;
+	d->global_pmt->zero = pmt.zero;
+	d->global_pmt->reserved1 = pmt.reserved1;
+	d->global_pmt->section_length = pmt.section_length;
+	d->global_pmt->program_number = pmt.program_number;
+	d->global_pmt->reserved2 = pmt.reserved2;
+	d->global_pmt->version_number = pmt.version_number;
+	d->global_pmt->current_next_indicator = pmt.current_next_indicator;
+	d->global_pmt->section_number = pmt.section_number;
+	d->global_pmt->last_section_number = pmt.last_section_number;
+	d->global_pmt->reserved3 = pmt.reserved3;
+	d->global_pmt->PCR_PID = pmt.PCR_PID;
+	d->global_pmt->reserved4 = pmt.reserved4;
+	d->global_pmt->program_info_length = pmt.program_info_length;
 
 	// 新的流变多
-	if (GLOBAL_PMT->stream_count < pmt.stream_count)
+	if (d->global_pmt->stream_count < pmt.stream_count)
 	{
-		if (GLOBAL_PMT->pStreams != NULL)
+		if (d->global_pmt->pStreams != NULL)
 		{
-			TS_PMT_STREAM * pStreamsNew = realloc(GLOBAL_PMT->pStreams, sizeof(TS_PMT_STREAM) * pmt.stream_count);
+			TS_PMT_STREAM * pStreamsNew = realloc(d->global_pmt->pStreams, sizeof(TS_PMT_STREAM) * pmt.stream_count);
 			if (pStreamsNew == NULL)
 			{
-				free(GLOBAL_PMT);
-				GLOBAL_PMT = NULL;
+				free(d->global_pmt);
+				d->global_pmt = NULL;
 				return -1;
 			}
-			GLOBAL_PMT->pStreams = pStreamsNew;
+			d->global_pmt->pStreams = pStreamsNew;
 		}
 		else
 		{
 			TS_PMT_STREAM * pStreamsNew = malloc(sizeof(TS_PMT_STREAM) * pmt.stream_count);
 			if (pStreamsNew == NULL)
 			{
-				free(GLOBAL_PMT);
-				GLOBAL_PMT = NULL;
+				free(d->global_pmt);
+				d->global_pmt = NULL;
 				return -1;
 			}
-			GLOBAL_PMT->pStreams = pStreamsNew;
+			d->global_pmt->pStreams = pStreamsNew;
 		}
 	}
-	GLOBAL_PMT->stream_count = pmt.stream_count;
+	d->global_pmt->stream_count = pmt.stream_count;
 
-	memcpy(GLOBAL_PMT->pStreams, pmt.pStreams, sizeof(TS_PMT_STREAM) * pmt.stream_count);
+	memcpy(d->global_pmt->pStreams, pmt.pStreams, sizeof(TS_PMT_STREAM) * pmt.stream_count);
 
 	int video_found = 0;
 	int audio_found = 0;
 
 	// 设置视频、音频
-	for(int i = 0; i<  GLOBAL_PMT->stream_count; i++)
+	for(int i = 0; i<  d->global_pmt->stream_count; i++)
 	{ 
 		// h.264编码对应0x1b
 		// aac编码对应0x0f
-		if (GLOBAL_PMT->pStreams[i].stream_type == 0x1b && !video_found)
+		if (d->global_pmt->pStreams[i].stream_type == 0x1b && !video_found)
 		{
-			GLOBAL_PMT->main_video_PID = GLOBAL_PMT->pStreams[i].elementary_PID;
+			d->global_pmt->main_video_PID = d->global_pmt->pStreams[i].elementary_PID;
 			video_found = 1;
 		}
-		if (GLOBAL_PMT->pStreams[i].stream_type == 0x0f && !audio_found)
+		if (d->global_pmt->pStreams[i].stream_type == 0x0f && !audio_found)
 		{
-			GLOBAL_PMT->main_audio_PID = GLOBAL_PMT->pStreams[i].elementary_PID;
+			d->global_pmt->main_audio_PID = d->global_pmt->pStreams[i].elementary_PID;
 			audio_found = 1;
 		}
 	}
@@ -656,7 +723,7 @@ int ts_pmt_submit(TS_PMT pmt)
 }
 
 // 输入pes载荷
-int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
+int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 {
 	int start = 4;
 	int adpataion_field_length = pTsBuf[4];
@@ -678,14 +745,14 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		}
 
 		// 取出旧pes包缓存数据
-		BYTE_LIST *pesBuffer = (BYTE_LIST *)hash_map_get(&GLOBAL_HASH_MAP, pHeader->PID);
+		BYTE_LIST *pesBuffer = (BYTE_LIST *)hash_map_get(d->global_buffer_map, pHeader->PID);
 
 		if (pesBuffer != NULL) {
 
 			if (pesBuffer->used_len > 0)
 			{
 				// 获得PES包数据
-				int rs = read_pes(pesBuffer);
+				int rs = _read_pes(d, pesBuffer);
 
 				// TODO
 				//tsDecoder.feedbackPes(pesPkt, p.PID);
@@ -697,7 +764,7 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 		else
 		{
 			pesBuffer = byte_list_create(finish_len);
-			hash_map_put(&GLOBAL_HASH_MAP, pHeader->PID, pesBuffer);
+			hash_map_put(d->global_buffer_map, pHeader->PID, pesBuffer);
 		}
 		pesBuffer->finish_len = finish_len;
 
@@ -712,7 +779,7 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 	else {
 
 		// 取出旧pes包缓存数据
-		BYTE_LIST *pesBuffer = (BYTE_LIST *)hash_map_get(&GLOBAL_HASH_MAP, pHeader->PID);
+		BYTE_LIST *pesBuffer = (BYTE_LIST *)hash_map_get(d->global_buffer_map, pHeader->PID);
 		if (pesBuffer != NULL)
 		{
 			// 缓存中追加新数据
@@ -724,7 +791,7 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			if (is_byte_list_finish(pesBuffer)) {
 
 				// 获得PES包数据
-				int rs = read_pes(pesBuffer);
+				int rs = _read_pes(d, pesBuffer);
 
 				// TODO
 				//tsDecoder.feedbackPes(pesPkt, p.PID);
@@ -734,7 +801,7 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 			}
 		}
 		else {
-			printf("receive_pes_payload:can't append data. \n");
+			printf("_receive_pes_payload:can't append data. \n");
 			return -1;
 		}
 	}
@@ -743,7 +810,7 @@ int receive_pes_payload(unsigned char * pTsBuf, TS_HEADER * pHeader)
 }
 
 // 解析pes包
-int read_pes(BYTE_LIST * pPesByteList)
+int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList)
 {
 	TS_PES_PACKET *tp = (TS_PES_PACKET *)malloc(sizeof(TS_PES_PACKET));
 	unsigned char * pl = pPesByteList->pBytes;

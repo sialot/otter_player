@@ -1,7 +1,6 @@
 
 #include "byte_list.h"
-const int ENHANCE_SIZE = 32 * 1024;
-const int AUTO_FREE_SIZE = 64 * 1024;
+const int ENHANCE_SIZE = 4 * 1024;
 
 BYTE_LIST* byte_list_create(int size)
 {
@@ -10,35 +9,20 @@ BYTE_LIST* byte_list_create(int size)
 	{
 		return NULL;
 	}
-	pBytelist->pBytes = (unsigned char *)malloc(sizeof(unsigned char) * size);
-	if (pBytelist->pBytes == NULL)
+	pBytelist->size = size;
+	pBytelist->used_len = 0;
+	pBytelist->finish_len = 0; // 无限制
+	pBytelist->pBytes = NULL;
+
+	unsigned char *pBytes = (unsigned char *)malloc(sizeof(unsigned char) * size);
+	if (pBytes == NULL)
 	{
 		free(pBytelist);
 		return NULL;
 	}
-	pBytelist->size = size;
-	pBytelist->used_len = 0;
-	pBytelist->finish_len = 0; // 无限制
+	pBytelist->pBytes = pBytes;
+
 	return pBytelist;
-}
-
-int byte_list_add(BYTE_LIST *bl, unsigned char byte)
-{
-	if (bl->size == bl->used_len)
-	{
-		int new_size = bl->used_len + ENHANCE_SIZE;
-
-		unsigned char * pByteNew = (unsigned char *)realloc(bl->pBytes, sizeof(unsigned char) * new_size);
-		if (pByteNew == NULL)
-		{
-			return -1;
-		}
-		bl->pBytes = pByteNew;
-		bl->size = new_size;
-	}
-	bl->pBytes[bl->used_len] = byte;
-	bl->used_len = bl->used_len + 1;
-	return 0;
 }
 
 int byte_list_add_list(BYTE_LIST *bl, unsigned char *bytes, int size)
@@ -68,22 +52,25 @@ int byte_list_clean(BYTE_LIST * bl)
 {
 	bl->used_len = 0;
 	bl->finish_len = 0;
-	if (bl->size > AUTO_FREE_SIZE)
+	unsigned char * pByteNew = (unsigned char *)realloc(bl->pBytes, sizeof(unsigned char) * 256);
+	if (pByteNew == NULL)
 	{
-		unsigned char * pByteNew = (unsigned char *)realloc(bl->pBytes, sizeof(unsigned char) * 1024);
-		if (pByteNew == NULL)
-		{
-			return -1;
-		}
-		bl->pBytes = pByteNew;
-		bl->size = 1024;
+		return -1;
 	}
+
+	bl->pBytes = pByteNew;
+	bl->size = 256;
 	return 0;
 }
 
 int byte_list_free(BYTE_LIST *bl)
 {
-	free(bl->pBytes);
+	if (bl == NULL)
+		return;
+	if (bl->pBytes != NULL)
+	{
+		free(bl->pBytes);
+	}
 	free(bl);
 	return 0;
 }

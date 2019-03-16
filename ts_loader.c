@@ -48,7 +48,6 @@ TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time)
 	loader->media_file_size = -1;
 	loader->current_range = 0;
 	loader->duration = duration;
-	loader->start_time = start_time;
 	strcpy(loader->media_url, mediaUrl);
 	loader->is_can_seek = 0;
 	loader->is_finish = 0;
@@ -84,7 +83,7 @@ TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time)
 
 	// 尝试获取文件大小
 	_get_file_size(loader);
-	if (loader->start_time > loader->duration)
+	if (start_time > loader->duration)
 	{
 		loader->current_range = loader->media_file_size;
 		printf("loader->start_time > loader->duration.is_finish = 1\n");
@@ -93,13 +92,13 @@ TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time)
 
 	if (loader->media_file_size > 0 && loader->duration > 0)
 	{
-		long long wishSize = ((double)loader->start_time / (double)loader->duration) * loader->media_file_size;
+		long long wishSize = ((double)start_time / (double)loader->duration) * loader->media_file_size;
 		loader->current_range = (long long)floor(wishSize / 188.0) * 188; 
 		loader->is_can_seek = 1;
 	}
 
 	printf("create_ts_loader>> url:%s, time:%d/%d, range:%lld/%lld \n", loader->media_url,
-		loader->start_time, loader->duration, loader->current_range, loader->media_file_size);
+		start_time, loader->duration, loader->current_range, loader->media_file_size);
 	return loader;
 }
 
@@ -118,6 +117,32 @@ void ts_loader_range_load(TS_LOADER *l)
 		printf("l->current_range >= l->media_file_size .is_finish = 1\n");
 		l->is_finish = 1;
 	}
+}
+
+// 调整时间
+void ts_loader_seek_time(TS_LOADER * l, int time)
+{
+
+	// 清空数据
+	block_queue_clean(l->ts_pkt_queue);
+
+	// 重新设置时间
+	if (time > l->duration)
+	{
+		l->current_range = l->media_file_size;
+		printf("loader->start_time > loader->duration.is_finish = 1\n");
+		l->is_finish = 1;
+	}
+
+	if (l->media_file_size > 0 && l->duration > 0)
+	{
+		long long wishSize = ((double)time / (double)l->duration) * l->media_file_size;
+		l->current_range = (long long)floor(wishSize / 188.0) * 188;
+		l->is_can_seek = 1;
+	}
+
+	printf("create_ts_loader>> url:%s, time:%d/%d, range:%lld/%lld \n", l->media_url,
+		time, l->duration, l->current_range, l->media_file_size);
 }
 
 // 拉取 ts 包

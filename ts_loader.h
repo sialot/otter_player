@@ -17,7 +17,6 @@ typedef struct TS_LOADER
 	long long media_file_size;      // 媒体大小（字节）
 	long long current_range;        // 当前加载点
 	int duration;                   // 总大小
-	int start_time;                 // 加载起始时间
 	char media_url[1024];           // 媒体地址
 	int is_can_seek;                // 是否可以查找进度
 	int is_finish;                  // 是否加载结束
@@ -40,6 +39,9 @@ TS_LOADER * ts_loader_create(char *pMediaUrl, int duration, int start_time);
 
 // 范围加载（部分加载，每次调用按PKT_NUM_PER_TIME向后加载）
 void ts_loader_range_load(TS_LOADER *l);
+
+// 调整时间
+void ts_loader_seek_time(TS_LOADER *l, int time);
 
 // 拉取 ts 包
 BYTE_LIST * poll_ts_pkt(TS_LOADER *l);

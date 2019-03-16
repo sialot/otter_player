@@ -10,7 +10,7 @@
 #include "player.h"
 
 int fileRead(char *filePath);
-
+long long my_atoll(char *instr);
 #ifdef _DEBUG  
 #define new new(_NORMAL_BLOCK, __FILE__, __LINE__)  
 #endif  
@@ -76,12 +76,43 @@ int main()
 	play_by_time(p, 3000);
 	*/
 
-	fileRead("C:\\1.ts");
+	//fileRead("C:\\1.ts");
+
+	long long media_file_size = 34359738368000000;
+	printf("%lld\n", media_file_size);
+	long long current_range = 0;
+	int duration = 7200;  
+	int start_time = 72;
+
+	long long wishSize = ((double)start_time / (double)duration) * media_file_size;
+	printf("%lld\n", wishSize);
+	current_range = (long long)floor(wishSize / 188.0) * 188;
+	printf("%lld\n", current_range);
+
+	char test[30];
+	sprintf(test,"%lld", current_range);
+
+	printf(">> %s \n ", test);
+
+	long long t = my_atoll(test);
+
+	printf(">>>>> %lld \n ", t);
+
 
 	system("pause");
 	return 0;
 }
+long long my_atoll(char *instr)
+{
+	long long retval;
+	int i;
 
+	retval = 0;
+	for (; *instr; instr++) {
+		retval = 10 * retval + (*instr - '0');
+	}
+	return retval;
+}
 int fileRead(char *filePath) {
 	printf("%s\n", filePath);
 	FILE *tsFile = NULL;
@@ -91,7 +122,7 @@ int fileRead(char *filePath) {
 		printf("file not exist!\n");
 	}
 
-	int rs = 0;
+	size_t rs = 0;
 	TS_DEMUXER *d = ts_demuxer_create(512);
 	do {
 		unsigned char *pkt = malloc(sizeof(unsigned char) * 188);

@@ -15,7 +15,7 @@ function JS_XHRGetFileSize(loadPtr, url) {
                     size = content_range.split("/")[1];
                 }
                 console.log("C CALL JS, JS_XHRGetFileSize success, size:" + size);
-                Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'number'], [loadPtr, size]);
+                Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'string'], [loadPtr, size]);
             }
             else {
                 console.log("C CALL JS, JS_XHRGetFileSize failed!");
@@ -28,7 +28,7 @@ function JS_XHRGetFileSize(loadPtr, url) {
 
 function JS_XHRGetFile(loadPtr, url, start, end) {
     var request = new XMLHttpRequest();
-    var range = "bytes=" + start + "-" + (end -1);
+    var range = "bytes=" + start + "-" + end;
     var len = 0;
     request.open("GET", url, true);
     request.responseType = "arraybuffer";

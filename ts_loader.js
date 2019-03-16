@@ -4,6 +4,6 @@ mergeInto(LibraryManager.library, {
         return JS_XHRGetFileSize(loadPtr, UTF8ToString(url));
     },
     _js_xhr_load_file: function (loadPtr, url, start, end) {
-        return JS_XHRGetFile(loadPtr, UTF8ToString(url), start, end);
+        return JS_XHRGetFile(loadPtr, UTF8ToString(url), UTF8ToString(start), UTF8ToString(end));
     },
 })

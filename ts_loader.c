@@ -17,11 +17,14 @@
 
 #include "ts_loader.h"
 
-// 每次http请求加载的ts包数
-const int PKT_NUM_PER_TIME = 50;
+// 每次http请求加载的ts包数 约 100kb
+const int PKT_NUM_PER_TIME = 500;
+
+// 包缓存数量 约 1mb
+const int PKT_BUFFER_COUNT = 5000;
 
 // 创建加载器
-TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time, int buffer_count)
+TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time)
 {
 	if (start_time < 0)
 	{
@@ -35,19 +38,21 @@ TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time, int 
 		return NULL;
 	}
 
-	if (buffer_count <= 0)
-	{
-		printf("create_ts_loader init failed.buffer_count <= 0! \n");
-		return NULL;
-	}
-
 	TS_LOADER *loader = malloc(sizeof(TS_LOADER));
-
 	if (loader == NULL)
 	{
 		printf("create_ts_loader init failed.can't get mem! \n");
 		return NULL;
 	}
+
+	loader->media_file_size = -1;
+	loader->current_range = 0;
+	loader->duration = duration;
+	loader->start_time = start_time;
+	strcpy(loader->media_url, mediaUrl);
+	loader->is_can_seek = 0;
+	loader->is_finish = 0;
+	loader->ts_pkt_queue = NULL;
 
 	if (0 != pthread_mutex_init(&loader->data_mutex, NULL))
 	{
@@ -66,7 +71,7 @@ TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time, int 
 		return NULL;
 	}
 
-	BLOCK_QUEUE *ts_queue = block_queue_create(buffer_count);
+	BLOCK_QUEUE *ts_queue = block_queue_create(PKT_BUFFER_COUNT);
 	if (ts_queue == NULL)
 	{
 		pthread_mutex_destroy(&loader->data_mutex);
@@ -75,15 +80,7 @@ TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time, int 
 		free(loader);
 		return NULL;
 	}
-	strcpy(loader->media_url, mediaUrl);
-
 	loader->ts_pkt_queue = ts_queue;
-	loader->duration = duration;
-	loader->start_time = start_time;
-	loader->media_file_size = -1;
-	loader->current_range = 0;
-	loader->is_can_seek = 0;
-	loader->is_finish = 0;
 
 	// 尝试获取文件大小
 	_get_file_size(loader);
@@ -96,12 +93,12 @@ TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time, int 
 
 	if (loader->media_file_size > 0 && loader->duration > 0)
 	{
-		double wishSize = ((double)loader->start_time / (double)loader->duration) * loader->media_file_size;
-		loader->current_range = floor(wishSize / 188.0) * 188;
+		long long wishSize = ((double)loader->start_time / (double)loader->duration) * loader->media_file_size;
+		loader->current_range = (long long)floor(wishSize / 188.0) * 188; 
 		loader->is_can_seek = 1;
 	}
 
-	printf("create_ts_loader>> url:%s, time:%d/%d, range:%d/%d \n", loader->media_url,
+	printf("create_ts_loader>> url:%s, time:%d/%d, range:%lld/%lld \n", loader->media_url,
 		loader->start_time, loader->duration, loader->current_range, loader->media_file_size);
 	return loader;
 }
@@ -161,10 +158,10 @@ void _get_file_data(TS_LOADER * l)
 	_thread_param args;
 	args.loaderPointer = l;
 	args.start = l->current_range;
-	args.end = l->current_range + PKT_NUM_PER_TIME * 188;
+	args.end = l->current_range + PKT_NUM_PER_TIME * 188 - 1;
 	l->current_range += PKT_NUM_PER_TIME * 188;
 
-	printf("_get_file_data start, range: %d - %d / %d \n", args.start, args.end, l->media_file_size);
+	printf("_get_file_data start, range: %lld - %lld / %lld \n", args.start, args.end, l->media_file_size);
 
 	pthread_create(&l->wait_http_thread, NULL, _wait_http_result, (void *)&args);
 	pthread_create(&l->http_thread, NULL, _call_xhr_load_file, (void *)&args);
@@ -192,11 +189,11 @@ void _js_xhr_get_file_size(TS_LOADER * l, char * url) {};
 #endif
 
 // js回调方法
-EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, int size)
+EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, char * size)
 {
 	pthread_mutex_lock(&l->data_mutex);
-	l->media_file_size = size;
-	//printf("_xhr_on_file_size_success, size:%d\n", l->media_file_size);
+	l->media_file_size = char_to_longlong(size);
+	printf("_xhr_on_file_size_success, size:%lld\n", l->media_file_size);
 
 	// 通知 _wait_xhr_get_file_size 结果已返回
 	pthread_cond_signal(&l->msg_cond);
@@ -209,16 +206,21 @@ void *_call_xhr_load_file(void * args)
 	_thread_param param = *(_thread_param *)args;
 	TS_LOADER *l = param.loaderPointer;
 
+	char start[30];
+	sprintf(start, "%lld", param.start);
+	char end[30];
+	sprintf(end, "%lld", param.end);
+
 	// 调用js函数
-	_js_xhr_load_file(l, l->media_url, param.start, param.end);
+	_js_xhr_load_file(l, l->media_url, start, end);
 	return NULL;
 }
 
 // 调用加载
 #if defined(__EMSCRIPTEN__)
-EM_PORT_API(void) _js_xhr_load_file(TS_LOADER * l, char * url, int start, int end);
+EM_PORT_API(void) _js_xhr_load_file(TS_LOADER * l, char * url, char * start, char * end);
 #else
-void _js_xhr_load_file(TS_LOADER * l, char * url, int start, int end) {};
+void _js_xhr_load_file(TS_LOADER * l, char * url, char * start, char * end) {};
 #endif
 
 // 回调方法
@@ -262,4 +264,16 @@ void *_wait_http_result(void * args)
 	printf("pthread_cond_wait over !\n");
 	pthread_mutex_unlock(&l->data_mutex);
 	return NULL;
+}
+
+long long char_to_longlong(char * instr)
+{
+	long long retval;
+	int i;
+
+	retval = 0;
+	for (; *instr; instr++) {
+		retval = 10 * retval + (*instr - '0');
+	}
+	return retval;
 }

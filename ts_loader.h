@@ -14,11 +14,11 @@
 // 加载器
 typedef struct TS_LOADER
 {
-	int media_file_size;            // 媒体大小（字节）
-	char media_url[1024];           // 媒体地址
+	long long media_file_size;      // 媒体大小（字节）
+	long long current_range;        // 当前加载点
 	int duration;                   // 总大小
-	int current_range;              // 当前加载点
 	int start_time;                 // 加载起始时间
+	char media_url[1024];           // 媒体地址
 	int is_can_seek;                // 是否可以查找进度
 	int is_finish;                  // 是否加载结束
 	pthread_t http_thread;          // http请求线程
@@ -31,12 +31,12 @@ typedef struct TS_LOADER
 // 多线程参数
 typedef struct _thread_param {
 	TS_LOADER * loaderPointer;      // 加载器指针
-	int start;                      // http请求range起始位置  
-	int end;                        // http请求range结束位置
+	long long start;                      // http请求range起始位置  
+	long long end;                        // http请求range结束位置
 } _thread_param;
 
 // 创建加载器
-TS_LOADER * ts_loader_create(char *pMediaUrl, int duration, int start_time, int buffer_count);
+TS_LOADER * ts_loader_create(char *pMediaUrl, int duration, int start_time);
 
 // 范围加载（部分加载，每次调用按PKT_NUM_PER_TIME向后加载）
 void ts_loader_range_load(TS_LOADER *l);
@@ -57,16 +57,18 @@ void *_call_xhr_get_file_size(void * args);
 void _js_xhr_get_file_size(TS_LOADER * l, char * url);
 
 // js回调，获取文件大小
-void _xhr_on_file_size_success(TS_LOADER *l, int size);
+void _xhr_on_file_size_success(TS_LOADER *l, char * size);
 
 // 线程函数，加载文件
 void *_call_xhr_load_file(void * args);
 
 // js方法，调用xmlhttprequest
-void _js_xhr_load_file(TS_LOADER * l, char * url, int start, int end);
+void _js_xhr_load_file(TS_LOADER * l, char * url, char * start, char * end);
 
-// js回调，获取文件大小
+// js回调，获取文件数据
 void _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int len);
 
 // 等待http返回结果
 void *_wait_http_result(void * args);
+
+long long char_to_longlong(char * instr);

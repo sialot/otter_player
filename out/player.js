@@ -1128,11 +1128,11 @@ function updateGlobalBufferViews() {
 if (!ENVIRONMENT_IS_PTHREAD) { // Pthreads have already initialized these variables in src/worker.js, where they were passed to the thread worker at startup time
 
 var STATIC_BASE = 1024,
-    STACK_BASE = 8944,
+    STACK_BASE = 8912,
     STACKTOP = STACK_BASE,
-    STACK_MAX = 5251824,
-    DYNAMIC_BASE = 5251824,
-    DYNAMICTOP_PTR = 7888;
+    STACK_MAX = 5251792,
+    DYNAMIC_BASE = 5251792,
+    DYNAMICTOP_PTR = 7856;
 
 assert(STACK_BASE % 16 === 0, 'stack must start aligned');
 assert(DYNAMIC_BASE % 16 === 0, 'heap must start aligned');
@@ -1643,7 +1643,7 @@ function _emscripten_asm_const_ii(code, a0) {
 
 
 
-// STATICTOP = STATIC_BASE + 7920;
+// STATICTOP = STATIC_BASE + 7888;
 /* global initializers */ if (!ENVIRONMENT_IS_PTHREAD) __ATINIT__.push({ func: function() { ___emscripten_pthread_data_constructor() } });
 
 
@@ -1657,7 +1657,7 @@ memoryInitializer = "player.js.mem";
 
 /* no memory initializer */
 var tempDoublePtr;
-if (!ENVIRONMENT_IS_PTHREAD) tempDoublePtr = 8928;
+if (!ENVIRONMENT_IS_PTHREAD) tempDoublePtr = 8896;
 assert(tempDoublePtr % 8 == 0);
 
 function copyTempFloat(ptr) { // functions, because inlining this code increases code size too much
@@ -1696,7 +1696,7 @@ function copyTempDouble(ptr) {
   
   var __pthread_is_main_browser_thread=0; var PThread={MAIN_THREAD_ID:1,mainThreadInfo:{schedPolicy:0,schedPrio:0},unusedWorkerPool:[],runningWorkers:[],initMainThreadBlock:function () {
         if (ENVIRONMENT_IS_PTHREAD) return undefined;
-        PThread.mainThreadBlock = 8128;
+        PThread.mainThreadBlock = 8096;
   
         for (var i = 0; i < 244/4; ++i) HEAPU32[PThread.mainThreadBlock/4+i] = 0;
   
@@ -1709,7 +1709,7 @@ function copyTempDouble(ptr) {
         HEAP32[((headPtr)>>2)]=headPtr;
   
         // Allocate memory for thread-local storage.
-        var tlsMemory = 8384;
+        var tlsMemory = 8352;
         for (var i = 0; i < 128; ++i) HEAPU32[tlsMemory/4+i] = 0;
         Atomics.store(HEAPU32, (PThread.mainThreadBlock + 116 ) >> 2, tlsMemory); // Init thread-local-storage memory array.
         Atomics.store(HEAPU32, (PThread.mainThreadBlock + 52 ) >> 2, PThread.mainThreadBlock); // Main thread ID.
@@ -2063,7 +2063,7 @@ function copyTempDouble(ptr) {
       }
 
   function __js_xhr_load_file(loadPtr, url, start, end) {
-          return JS_XHRGetFile(loadPtr, UTF8ToString(url), start, end);
+          return JS_XHRGetFile(loadPtr, UTF8ToString(url), UTF8ToString(start), UTF8ToString(end));
       }
 
   var _emscripten_asm_const_int=true;
@@ -2073,7 +2073,7 @@ function copyTempDouble(ptr) {
     } 
 
   
-  var __main_thread_futex_wait_address; if (ENVIRONMENT_IS_PTHREAD) __main_thread_futex_wait_address = PthreadWorkerInit.__main_thread_futex_wait_address; else PthreadWorkerInit.__main_thread_futex_wait_address = __main_thread_futex_wait_address = 8912;function _emscripten_futex_wait(addr, val, timeout) {
+  var __main_thread_futex_wait_address; if (ENVIRONMENT_IS_PTHREAD) __main_thread_futex_wait_address = PthreadWorkerInit.__main_thread_futex_wait_address; else PthreadWorkerInit.__main_thread_futex_wait_address = __main_thread_futex_wait_address = 8880;function _emscripten_futex_wait(addr, val, timeout) {
       if (addr <= 0 || addr > HEAP8.length || addr&3 != 0) return -22;
   //    dump('futex_wait addr:' + addr + ' by thread: ' + _pthread_self() + (ENVIRONMENT_IS_PTHREAD?'(pthread)':'') + '\n');
       if (ENVIRONMENT_IS_WORKER) {
@@ -4030,7 +4030,7 @@ function JS_XHRGetFileSize(loadPtr, url) {
                     size = content_range.split("/")[1];
                 }
                 console.log("C CALL JS, JS_XHRGetFileSize success, size:" + size);
-                Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'number'], [loadPtr, size]);
+                Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'string'], [loadPtr, size]);
             }
             else {
                 console.log("C CALL JS, JS_XHRGetFileSize failed!");
@@ -4043,7 +4043,7 @@ function JS_XHRGetFileSize(loadPtr, url) {
 
 function JS_XHRGetFile(loadPtr, url, start, end) {
     var request = new XMLHttpRequest();
-    var range = "bytes=" + start + "-" + (end -1);
+    var range = "bytes=" + start + "-" + end;
     var len = 0;
     request.open("GET", url, true);
     request.responseType = "arraybuffer";

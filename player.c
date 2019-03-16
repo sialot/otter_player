@@ -29,21 +29,21 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 	}
 
 	// 初始化状态，显示宽高
+	p->current_play_time = 0;
+	p->media_start_timestamp = 0;
+	p->media_duration = -1;
 	p->status = INIT_FINISH;
 	p->display_height = display_height;
 	p->display_width = display_width;
-
-	// 初始化媒体数据
-	_clean_old_media_info(p);
-
-	// 初始化 加载器、解封装器、解码器 的指针
+	p->media_url[0] = '\0';
 	p->ts_loader = NULL;
+	p->ts_demuxer = NULL;
 
 	printf("player inited! \n");
 	return p;
 }
 
-// 设定媒体
+// 设定媒体，只能一次
 EM_PORT_API(int) set_media(OTTER_PLAYER *p, char * media_url, int duration)
 {
 	printf("set media start >>url:%s, duration:%d\n", p->media_url, duration);
@@ -52,21 +52,10 @@ EM_PORT_API(int) set_media(OTTER_PLAYER *p, char * media_url, int duration)
 		return -1;
 	}
 
-	// 播放中不允许重设媒体
-	if (p->status == PLAYING || p->status == PAUSING)
+	if (p->status != INIT_FINISH)
 	{
-		printf("player media is playing or pausing ,can't set media!\n");
 		return -1;
 	}
-
-	// 清理旧媒体
-	_clean_old_media_info(p);
-
-	// 清空现有缓存队列
-	ts_loader_destroy(p->ts_loader);
-	p->ts_loader = NULL;
-
-	//pes 队列清空 TODO
 
 	// 设置新媒体
 	p->media_duration = duration;
@@ -85,11 +74,11 @@ EM_PORT_API(int) play(OTTER_PLAYER *p)
 		printf("player is null!\n");
 		return -1;
 	}
-	return play_by_time(p, p->current_play_time);
+	return seek(p, p->current_play_time);
 }
 
 // 按时间播放
-EM_PORT_API(int) play_by_time(OTTER_PLAYER *p, int time)
+EM_PORT_API(int) seek(OTTER_PLAYER *p, int time)
 {
 	printf("play_by_time(%d) \n", time);
 	if (p == NULL) {
@@ -97,37 +86,43 @@ EM_PORT_API(int) play_by_time(OTTER_PLAYER *p, int time)
 		return -1;
 	}
 
-	// 创建加载器
-	if (_create_loader_and_thread(p, time) == -1)
+	// 工作中直接调整loader时间
+	if (p->status == WORKING)
 	{
-		printf("_prepare_loader failed!\n");
-		return -1;
+		ts_loader_seek_time(p->ts_loader, time);
+		return 0;
+	}
+
+	// 创建加载器
+	if (p->ts_loader == NULL)
+	{
+		TS_LOADER *loader = ts_loader_create(p->media_url, p->media_duration, time);
+		if (loader == NULL)
+		{
+			printf("can't create loadder!\n");
+			return -1;
+		}
+		p->ts_loader = loader;
 	}
 
 	// 解封装
+	if (p->ts_demuxer == NULL)
+	{
+		TS_DEMUXER *demuxer = ts_demuxer_create();
+		if (demuxer == NULL)
+		{
+			printf("can't create demuxer!\n");
+			return -1;
+		}
+		p->ts_demuxer = demuxer;
+	}
 
 	// 解码
 
-	// TODO
 
-	return 0;
-}
-
-EM_PORT_API(int) do_pause()
-{
 
 	// TODO
-	return 0;
-}
 
-EM_PORT_API(int) stop(OTTER_PLAYER *p)
-{
-	if (p == NULL) {
-		printf("player is null!\n");
-		return -1;
-	}
-
-	// TODO
 	return 0;
 }
 
@@ -138,24 +133,12 @@ EM_PORT_API(int) destroy_player(OTTER_PLAYER *p)
 		return -1;
 	}
 
-	// 销毁加载器和对应线程
-	_destroy_loader_and_thread(p);
 
 	// TODO
 	//pthread_t *ts_demux_thread; // ts解封装线程
 	//pthread_t *pes_decode_thread; // pes解码线程
 
 	free(p);
-	return 0;
-}
-
-int _clean_old_media_info(OTTER_PLAYER *p)
-{
-	p->current_play_time = 0;
-	p->media_duration = -1;
-	p->media_start_timestamp = -1;
-	p->media_current_timestamp = -1;
-	p->media_url[0] = '\0';
 	return 0;
 }
 
@@ -176,7 +159,6 @@ void _get_media_start_timestamp(OTTER_PLAYER * p)
 			BYTE_LIST *ts_pkt = poll_ts_pkt(loader);
 			demux_ts_pkt(demuxer, ts_pkt->pBytes);
 			byte_list_destroy(ts_pkt);
-
 			while (!is_pes_queue_empty(demuxer) && !ibreak)
 			{
 				TS_PES_PACKET *pesPkt = poll_pes_pkt(demuxer);
@@ -190,42 +172,6 @@ void _get_media_start_timestamp(OTTER_PLAYER * p)
 	ts_loader_destroy(loader);
 	ts_demuxer_destroy(demuxer);
 	return;
-}
-
-static int _create_loader_and_thread(OTTER_PLAYER *p, int time)
-{	
-	// 销毁加载器和线程
-	_destroy_loader_and_thread(p);
-
-	// 创建加载器
-	if (p->ts_loader == NULL)
-	{
-		TS_LOADER *loader = ts_loader_create(p->media_url, p->media_duration, time);
-		if (loader == NULL)
-		{
-			printf("can't create loadder!\n");
-			return -1;
-		}
-		p->ts_loader = loader;
-	}
-
-	// 创建线程  TODO
-
-	return 0;
-}
-
-static int _destroy_loader_and_thread(OTTER_PLAYER *p)
-{
-	// 销毁旧线程
-	pthread_detach(p->ts_load_thread);
-
-	// 销毁旧加载器
-	if (p->ts_loader != NULL)
-	{
-		ts_loader_destroy(p->ts_loader);
-		p->ts_loader = NULL;
-	}
-	return 0;
 }
 
 int test_poll_ts_pkt(OTTER_PLAYER * p)

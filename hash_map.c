@@ -9,7 +9,7 @@ HASH_MAP * hash_map_create()
 	return map;
 }
 
-int hash_map_put(HASH_MAP *map, int key, void *value)
+int hash_map_put(HASH_MAP *map, int key, BYTE_LIST *value)
 {
 	int keyArrayIdx = get_table_index(map, key);
 	if (keyArrayIdx != -1)
@@ -56,7 +56,7 @@ int hash_map_put(HASH_MAP *map, int key, void *value)
 	return 0;
 }
 
-void * hash_map_get(HASH_MAP * map, int key)
+BYTE_LIST * hash_map_get(HASH_MAP * map, int key)
 {
 	int hashcode = hash(key);
 	int keyArrayIdx = get_table_index(map, key);
@@ -96,7 +96,7 @@ static int get_table_index(HASH_MAP *map, int key)
 	return keyArrayIdx;
 }
 
-static HASH_MAP_ENTRY * entry_create(int key, void *value)
+static HASH_MAP_ENTRY * entry_create(int key, BYTE_LIST *value)
 {
 	HASH_MAP_ENTRY *entry = (HASH_MAP_ENTRY *)malloc(sizeof(HASH_MAP_ENTRY));
 	if (entry == NULL)
@@ -130,39 +130,24 @@ static int key_array_add(HASH_MAP * map, HASH_MAP_ENTRY *entry)
 	map->array_len++;
 	return 0;
 }
-void hash_map_free(HASH_MAP * map)
-{
-	if (map == NULL)
-		return;
-
-	free(map->table);
-	free(map);
-}
-/*
-void hash_map_free(HASH_MAP *map)
+void hash_map_destroy(HASH_MAP * map)
 {
 	if (map == NULL)
 		return;
 
 	for (int i = 0; i < map->array_len; i++)
 	{
+		HASH_MAP_ENTRY *cur;
 		HASH_MAP_ENTRY *entry = map->table[i];
-		hash_map_entry_free(entry);
+		do
+		{
+			cur = entry;
+			entry = entry->next;
+			byte_list_destroy(cur->value);
+			free(cur);
+		} while (entry != NULL);
 	}
 
 	free(map->table);
 	free(map);
 }
-
-static void hash_map_entry_free(HASH_MAP_ENTRY *entry)
-{
-	HASH_MAP_ENTRY *cur;
-	do
-	{
-		cur = entry;
-		entry = entry->next;
-		free(entry->value);
-		free(cur);
-	} while (entry != NULL);
-}
-*/

@@ -9,6 +9,8 @@
 #pragma comment(lib, "pthreadVC2.lib")
 #endif
 
+#include "byte_list.h"
+
 typedef struct BLOCK_QUEUE
 {
 	int size;
@@ -20,9 +22,9 @@ typedef struct BLOCK_QUEUE
 } BLOCK_QUEUE;
 
 BLOCK_QUEUE * block_queue_create(int size);
-int block_queue_push(BLOCK_QUEUE *queue, void *item);
-void * block_queue_poll(BLOCK_QUEUE *queue);
+int block_queue_push(BLOCK_QUEUE *queue, BYTE_LIST *item);
+BYTE_LIST * block_queue_poll(BLOCK_QUEUE *queue);
 int is_block_queue_full(BLOCK_QUEUE *queue);
 int is_block_queue_empty(BLOCK_QUEUE *queue);
 int block_queue_clean(BLOCK_QUEUE *queue);
-int block_queue_destory(BLOCK_QUEUE *queue);
+int block_queue_destroy(BLOCK_QUEUE *queue);

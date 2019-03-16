@@ -31,7 +31,7 @@ TS_DEMUXER * ts_demuxer_create(int buffer_count)
 	if (pes_pkt_queue == NULL)
 	{
 		printf("[%s]ts_pkt_queue init failed!\n", __FUNCTION__);
-		hash_map_free(d->global_buffer_map);
+		hash_map_destroy(d->global_buffer_map);
 		ts_demuxer_destroy(d);
 		return NULL;
 	}
@@ -88,41 +88,17 @@ void ts_demuxer_destroy(TS_DEMUXER * d)
 	_free_ts_pmt(d->global_pmt);
 
 	// MAP
-	_free_buffer_map(d->global_buffer_map);
+	hash_map_destroy(d->global_buffer_map);
 
 	// temp
 	_free_ts_pat_program(d->temp_programs);
 	_free_ts_pmt_stream(d->temp_streams);
 
 	// queue
-	while (!is_block_queue_empty(d->pes_pkt_queue))
-	{
-		BYTE_LIST * item = (BYTE_LIST *)block_queue_poll(d->pes_pkt_queue);
-		byte_list_free(item);
-	}
-	block_queue_destory(d->pes_pkt_queue);
+	block_queue_destroy(d->pes_pkt_queue);
 
 	// self
 	free(d);
-}
-
-void _free_buffer_map(HASH_MAP * pMap)
-{
-	if (pMap == NULL)
-		return;
-	for (int i = 0; i < pMap->array_len; i++)
-	{
-		HASH_MAP_ENTRY *cur;
-		HASH_MAP_ENTRY *entry = pMap->table[i];
-		do
-		{
-			cur = entry;
-			entry = entry->next;
-			byte_list_free(cur->value);
-			free(cur);
-		} while (entry != NULL);
-	}
-	hash_map_free(pMap);
 }
 
 static void _free_ts_pat_program(TS_PAT_PROGRAM *pProgram)

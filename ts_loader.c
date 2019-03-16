@@ -131,12 +131,7 @@ void ts_loader_destroy(TS_LOADER * l)
 	if (l == NULL)
 		return;
 
-	while (!is_block_queue_empty(l->ts_pkt_queue))
-	{
-		BYTE_LIST * item = (BYTE_LIST *)block_queue_poll(l->ts_pkt_queue);
-		byte_list_free(item);
-	}
-	block_queue_destory(l->ts_pkt_queue);
+	block_queue_destroy(l->ts_pkt_queue);
 	pthread_mutex_destroy(&l->data_mutex);
 	pthread_cond_destroy(&l->msg_cond);
 	free(l);

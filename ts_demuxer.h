@@ -145,7 +145,6 @@ int demux_ts_pkt_by_program_num(TS_DEMUXER *d, unsigned char *pTsBuf, int progra
 
 // 摧毁解封装模块
 void ts_demuxer_destroy(TS_DEMUXER *d);
-static void _free_buffer_map(HASH_MAP *pMap);
 static void _free_ts_pat_program(TS_PAT_PROGRAM *pProgram);
 static void _free_ts_pat(TS_PAT *pPat);
 static void _free_ts_pmt_stream(TS_PMT_STREAM *pStream);

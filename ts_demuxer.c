@@ -1,7 +1,10 @@
 ﻿#include "ts_demuxer.h"
 
+// 每次缓存的最大pes包数 50 * 80000 约 4mb
+const int PES_BUFFER_COUNT = 50;
+
 // 解封装模块创建
-TS_DEMUXER * ts_demuxer_create(int buffer_count)
+TS_DEMUXER * ts_demuxer_create()
 {
 	TS_DEMUXER *d = (TS_DEMUXER *)malloc(sizeof(TS_DEMUXER));
 	if (d == NULL)
@@ -27,7 +30,7 @@ TS_DEMUXER * ts_demuxer_create(int buffer_count)
 		return NULL;
 	}
 	d->global_buffer_map = map;
-	BLOCK_QUEUE *pes_pkt_queue = block_queue_create(buffer_count);
+	PES_BLOCK_QUEUE *pes_pkt_queue = pes_block_queue_create(PES_BUFFER_COUNT);
 	if (pes_pkt_queue == NULL)
 	{
 		printf("[%s]ts_pkt_queue init failed!\n", __FUNCTION__);
@@ -73,6 +76,11 @@ int demux_ts_pkt_by_program_num(TS_DEMUXER *d, unsigned char * pTsBuf, int progr
 	return 0;
 }
 
+TS_PES_PACKET * poll_pes_pkt(TS_DEMUXER * d)
+{
+	return NULL;
+}
+
 // 摧毁解封装模块
 void ts_demuxer_destroy(TS_DEMUXER * d)
 {
@@ -95,7 +103,7 @@ void ts_demuxer_destroy(TS_DEMUXER * d)
 	_free_ts_pmt_stream(d->temp_streams);
 
 	// queue
-	block_queue_destroy(d->pes_pkt_queue);
+	pes_block_queue_destroy(d->pes_pkt_queue);
 
 	// self
 	free(d);
@@ -142,7 +150,7 @@ static void _free_ts_pmt(TS_PMT *pPmt)
 	_free_ts_pmt_stream(pPmt->pStreams);
 	return;
 }
-static void _free_ts_pes_pkt(TS_PES_PACKET *pPesPkt) {
+void _free_ts_pes_pkt(TS_PES_PACKET *pPesPkt) {
 	if (pPesPkt == NULL)
 		return;
 	if (pPesPkt->pEsData != NULL)
@@ -280,10 +288,7 @@ static int _read_ts_PAT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHead
 
 	// 有效负载总长度
 	int len = 3 + tempPat.section_length;
-	tempPat.CRC = payload[len - 4] << 24 |
-		payload[len - 3] << 16 |
-		payload[len - 2] << 8 |
-		payload[len - 1] & 0xFF;
+	tempPat.CRC = payload[len - 4] << 24 | payload[len - 3] << 16 |	payload[len - 2] << 8 |	(payload[len - 1] & 0xFF);
 
 	// 检测固定位
 	if (tempPat.table_id != 0x00)
@@ -529,10 +534,7 @@ int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 
 	// 有效负载总长度
 	int len = 3 + tempPmt.section_length;
-	tempPmt.CRC = payload[len - 4] << 24 |
-		payload[len - 3] << 16 |
-		payload[len - 2] << 8 |
-		payload[len - 1] & 0xFF;
+	tempPmt.CRC = payload[len - 4] << 24 | payload[len - 3] << 16 |	payload[len - 2] << 8 |	(payload[len - 1] & 0xFF);
 
 	// 检测固定位
 	if (tempPmt.section_syntax_indicator != 0x1)

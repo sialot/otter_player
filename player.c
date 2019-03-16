@@ -17,9 +17,6 @@
 
 #include "player.h"
 
-// 每次缓存的最大pes包数
-const int PES_BUFFER_COUNT = 256;
-
 // 创建播放器
 EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 {

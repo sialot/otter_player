@@ -4,7 +4,7 @@
 #include <string.h>
 #include "byte_list.h"
 #include "hash_map.h"
-#include "block_queue.h"
+
 
 // ts 头
 typedef struct TS_HEADER
@@ -119,6 +119,8 @@ typedef struct TS_PES_PACKET
 	int es_data_len;
 } TS_PES_PACKET;
 
+#include "pes_block_queue.h"
+
 // ts解封装器
 typedef struct TS_DEMUXER
 {
@@ -130,12 +132,12 @@ typedef struct TS_DEMUXER
 	TS_PAT_PROGRAM *temp_programs;        // 临时节目数据
 	int temp_streams_count;               // 临时流总数
 	TS_PMT_STREAM *temp_streams;          // 临时流数据
-	BLOCK_QUEUE *pes_pkt_queue;           // pes包缓存队列
+	PES_BLOCK_QUEUE *pes_pkt_queue;           // pes包缓存队列
 } TS_DEMUXER;
 
 
 // 解封装模块创建
-TS_DEMUXER *ts_demuxer_create(int buffer_count);
+TS_DEMUXER *ts_demuxer_create();
 
 // 解封装
 int demux_ts_pkt(TS_DEMUXER *d, unsigned char *pTsBuf);
@@ -143,13 +145,16 @@ int demux_ts_pkt(TS_DEMUXER *d, unsigned char *pTsBuf);
 // 按指定节目号解封装
 int demux_ts_pkt_by_program_num(TS_DEMUXER *d, unsigned char *pTsBuf, int programNum);
 
+// 拉取 pes 包
+TS_PES_PACKET * poll_pes_pkt(TS_DEMUXER *d);
+
 // 摧毁解封装模块
 void ts_demuxer_destroy(TS_DEMUXER *d);
 static void _free_ts_pat_program(TS_PAT_PROGRAM *pProgram);
 static void _free_ts_pat(TS_PAT *pPat);
 static void _free_ts_pmt_stream(TS_PMT_STREAM *pStream);
 static void _free_ts_pmt(TS_PMT *pPmt);
-static void _free_ts_pes_pkt(TS_PES_PACKET *pPesPkt);
+void _free_ts_pes_pkt(TS_PES_PACKET *pPesPkt);
 
 // 读取ts包头
 static int _read_ts_head(TS_DEMUXER *d, unsigned char *pTsBuf, TS_HEADER *pHeader);

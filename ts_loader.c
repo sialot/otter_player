@@ -192,7 +192,7 @@ void _js_xhr_get_file_size(TS_LOADER * l, char * url) {};
 EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, char * size)
 {
 	pthread_mutex_lock(&l->data_mutex);
-	l->media_file_size = char_to_longlong(size);
+	l->media_file_size = _char_to_longlong(size);
 	printf("_xhr_on_file_size_success, size:%lld\n", l->media_file_size);
 
 	// 通知 _wait_xhr_get_file_size 结果已返回
@@ -266,7 +266,8 @@ void *_wait_http_result(void * args)
 	return NULL;
 }
 
-long long char_to_longlong(char * instr)
+// 字符转数字
+long long _char_to_longlong(char * instr)
 {
 	long long retval;
 	int i;

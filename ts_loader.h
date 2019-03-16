@@ -71,4 +71,5 @@ void _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int len);
 // 等待http返回结果
 void *_wait_http_result(void * args);
 
-long long char_to_longlong(char * instr);
+// 字符转数字
+long long _char_to_longlong(char * instr);

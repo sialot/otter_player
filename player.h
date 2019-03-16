@@ -10,9 +10,9 @@
 #include<stdlib.h>
 #include <string.h>
 
-#include "block_queue.h"
 #include "byte_list.h"
 #include "ts_loader.h"
+#include "ts_demuxer.h"
 
 // 播放状态
 typedef enum PLAY_STATUS
@@ -27,8 +27,8 @@ typedef enum PLAY_STATUS
 typedef struct OTTER_PLAYER
 {
 	int current_play_time; // 当前播放时间
-	int media_start_timestamp; // 媒体起始时间戳
-	int media_current_timestamp; // 媒体当前时间戳
+	unsigned long long media_start_timestamp; // 媒体起始时间戳
+	unsigned long long media_current_timestamp; // 媒体当前时间戳
 	int media_duration; // 媒体总时长
 	PLAY_STATUS status; // 状态
 	int display_width; // 显示宽
@@ -65,7 +65,7 @@ int destroy_player(OTTER_PLAYER *p);
 static int _clean_old_media_info(OTTER_PLAYER *p);
 
 // 获取媒体起始时间戳
-static int _get_media_start_timestamp(OTTER_PLAYER *p);
+static void _get_media_start_timestamp(OTTER_PLAYER *p);
 
 // 准备加载器
 static int _create_loader_and_thread(OTTER_PLAYER *p, int time);

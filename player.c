@@ -160,23 +160,36 @@ int _clean_old_media_info(OTTER_PLAYER *p)
 }
 
 // 获取媒体起始时间戳
-int _get_media_start_timestamp(OTTER_PLAYER * p)
+void _get_media_start_timestamp(OTTER_PLAYER * p)
 {
 	printf("_get_media_start_timestamp\n");
 
 	TS_LOADER *loader = ts_loader_create(p->media_url, p->media_duration, 0);
+	TS_DEMUXER *demuxer = ts_demuxer_create();
 
-	while (!loader->is_finish)
+	int ibreak = 0;
+
+	while (!loader->is_finish && !ibreak)
 	{
 		ts_loader_range_load(loader);
-		while (!is_block_queue_empty(loader->ts_pkt_queue)) {
-			BYTE_LIST *ts_pkt = block_queue_poll(loader->ts_pkt_queue);
-			printf("ts_packet size:%d\n", ts_pkt->used_len);
+		while (!is_ts_queue_empty(loader) && !ibreak) {
+			BYTE_LIST *ts_pkt = poll_ts_pkt(loader);
+			demux_ts_pkt(demuxer, ts_pkt->pBytes);
 			byte_list_destroy(ts_pkt);
+
+			while (!is_pes_queue_empty(demuxer) && !ibreak)
+			{
+				TS_PES_PACKET *pesPkt = poll_pes_pkt(demuxer);
+				p->media_start_timestamp = pesPkt->PTS;
+				ibreak = 1;
+				printf("get start_timestamp:%lld \n", p->media_start_timestamp);
+				break;
+			}
 		}
 	}
 	ts_loader_destroy(loader);
-	return 0;
+	ts_demuxer_destroy(demuxer);
+	return;
 }
 
 static int _create_loader_and_thread(OTTER_PLAYER *p, int time)

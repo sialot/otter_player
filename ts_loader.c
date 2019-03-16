@@ -120,6 +120,19 @@ void ts_loader_range_load(TS_LOADER *l)
 	}
 }
 
+// 拉取 ts 包
+BYTE_LIST * poll_ts_pkt(TS_LOADER *l)
+{
+	BYTE_LIST *tsPkt = block_queue_poll(l->ts_pkt_queue);
+	return tsPkt;
+}
+
+// 队列是否为空
+int is_ts_queue_empty(TS_LOADER *l)
+{
+	return is_block_queue_empty(l->ts_pkt_queue);
+}
+
 // 摧毁ts_loader
 void ts_loader_destroy(TS_LOADER * l)
 {

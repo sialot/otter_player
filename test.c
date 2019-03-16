@@ -76,9 +76,9 @@ int main()
 	play_by_time(p, 3000);
 	*/
 
-	//fileRead("C:\\1.ts");
+	fileRead("C:\\1.ts");
 
-	long long media_file_size = 34359738368000000;
+	/*long long media_file_size = 34359738368000000;
 	printf("%lld\n", media_file_size);
 	long long current_range = 0;
 	int duration = 7200;  
@@ -98,7 +98,7 @@ int main()
 
 	printf(">>>>> %lld \n ", t);
 
-
+	*/
 	system("pause");
 	return 0;
 }

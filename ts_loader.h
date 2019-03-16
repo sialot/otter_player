@@ -41,6 +41,12 @@ TS_LOADER * ts_loader_create(char *pMediaUrl, int duration, int start_time);
 // 范围加载（部分加载，每次调用按PKT_NUM_PER_TIME向后加载）
 void ts_loader_range_load(TS_LOADER *l);
 
+// 拉取 ts 包
+BYTE_LIST * poll_ts_pkt(TS_LOADER *l);
+
+// 队列是否为空
+int is_ts_queue_empty(TS_LOADER *l);
+
 // 摧毁加载器
 void ts_loader_destroy(TS_LOADER *l);
 

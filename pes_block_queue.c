@@ -37,7 +37,7 @@ int pes_block_queue_push(PES_BLOCK_QUEUE *q, TS_PES_PACKET *item)
 	{
 		if (0 != pthread_cond_wait(&q->msg_cond, &q->data_mutex))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
 		{
-			printf("[%s]: queue is full\n", __FUNCTION__);
+			printf("[%s]: pthread_cond_wait failed \n", __FUNCTION__);
 			pthread_mutex_unlock(&q->data_mutex);
 			return -1;
 		}

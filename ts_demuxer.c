@@ -76,9 +76,17 @@ int demux_ts_pkt_by_program_num(TS_DEMUXER *d, unsigned char * pTsBuf, int progr
 	return 0;
 }
 
+// 拉取 pes 包
 TS_PES_PACKET * poll_pes_pkt(TS_DEMUXER * d)
 {
-	return NULL;
+	TS_PES_PACKET *pkt = pes_block_queue_poll(d->pes_pkt_queue);
+	return pkt;
+}
+
+// 队列是否为空
+int is_pes_queue_empty(TS_DEMUXER *d)
+{
+	return is_pes_block_queue_empty(d->pes_pkt_queue);
 }
 
 // 摧毁解封装模块
@@ -986,12 +994,13 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList)
 	int es_data_len = pPesByteList->used_len - dataBegin;
 	tp->pEsData = pPesByteList->pBytes + dataBegin;
 
-	// 把es数据添加至处理队列
-	//int add_res = es_queue_add(GLOBAL_DATA_QUEUE, tp);
-	//if (add_res == -1)
-	//{
-	//	printf(">>>>>>>>>>>>>>>>>>>>>");
-	//}
+	// 把pes数据添加至处理队列
+	int add_res = pes_block_queue_push(d->pes_pkt_queue, tp);
+	if (add_res == -1)
+	{
+		_free_ts_pes_pkt(tp);
+		return -1;
+	}
 	
 	printf("read pes: buffer:  %d/%d\n", pPesByteList->used_len, pPesByteList->finish_len);
 	printf("read pes: es data len:  %d\n", es_data_len);

@@ -148,6 +148,9 @@ int demux_ts_pkt_by_program_num(TS_DEMUXER *d, unsigned char *pTsBuf, int progra
 // 拉取 pes 包
 TS_PES_PACKET * poll_pes_pkt(TS_DEMUXER *d);
 
+// 队列是否为空
+int is_pes_queue_empty(TS_DEMUXER *d);
+
 // 摧毁解封装模块
 void ts_demuxer_destroy(TS_DEMUXER *d);
 static void _free_ts_pat_program(TS_PAT_PROGRAM *pProgram);

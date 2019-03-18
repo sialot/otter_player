@@ -2,7 +2,7 @@
 
 BLOCK_QUEUE * block_queue_create(int size)
 {
-	BLOCK_QUEUE *newQueue = (BLOCK_QUEUE *)malloc(sizeof(BLOCK_QUEUE) + sizeof(BYTE_LIST *) * size);
+	BLOCK_QUEUE *newQueue = (BLOCK_QUEUE *)malloc(sizeof(BLOCK_QUEUE) + sizeof(void *) * size);
 	if (newQueue == NULL)
 	{
 		return NULL;
@@ -29,7 +29,7 @@ BLOCK_QUEUE * block_queue_create(int size)
 	return newQueue;
 }
 
-int block_queue_push(BLOCK_QUEUE *q, BYTE_LIST *item)
+int block_queue_push(BLOCK_QUEUE *q, void *item)
 {
 	pthread_mutex_lock(&q->data_mutex);
 
@@ -54,7 +54,7 @@ int block_queue_push(BLOCK_QUEUE *q, BYTE_LIST *item)
 	return 0;
 }
 
-BYTE_LIST * block_queue_poll(BLOCK_QUEUE *q)
+void * block_queue_poll(BLOCK_QUEUE *q)
 {
 	pthread_mutex_lock(&(q->data_mutex));
 
@@ -68,7 +68,7 @@ BYTE_LIST * block_queue_poll(BLOCK_QUEUE *q)
 		}
 	}
 
-	BYTE_LIST *item = q->items[q->head];
+	void *item = q->items[q->head];
 	q->head = (q->head + 1) % (q->size + 1);
 
 	pthread_mutex_unlock(&(q->data_mutex));
@@ -95,7 +95,7 @@ int is_block_queue_empty(BLOCK_QUEUE * q)
 	return 0;
 }
 
-int block_queue_clean(BLOCK_QUEUE * queue)
+int ts_block_queue_clean(BLOCK_QUEUE * queue)
 {
 	while (!is_block_queue_empty(queue))
 	{
@@ -106,11 +106,31 @@ int block_queue_clean(BLOCK_QUEUE * queue)
 	return 0;
 }
 
-int block_queue_destroy(BLOCK_QUEUE *queue)
+int ts_block_queue_destroy(BLOCK_QUEUE *queue)
 {
 	pthread_mutex_destroy(&(queue->data_mutex));
 	pthread_cond_destroy(&(queue->msg_cond));
-	block_queue_clean(queue);
+	ts_block_queue_clean(queue);
+	free(queue);
+	return 0;
+}
+
+int pes_block_queue_clean(BLOCK_QUEUE * queue)
+{
+	while (!is_block_queue_empty(queue))
+	{
+		TS_PES_PACKET * item = (TS_PES_PACKET *)block_queue_poll(queue);
+		_free_ts_pes_pkt(item);
+	}
+
+	return 0;
+}
+
+int pes_block_queue_destroy(BLOCK_QUEUE *queue)
+{
+	pthread_mutex_destroy(&(queue->data_mutex));
+	pthread_cond_destroy(&(queue->msg_cond));
+	pes_block_queue_clean(queue);
 	free(queue);
 	return 0;
 }

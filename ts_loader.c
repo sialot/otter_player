@@ -141,7 +141,7 @@ void ts_loader_destroy(TS_LOADER * l)
 	if (l == NULL)
 		return;
 
-	block_queue_destroy(l->ts_pkt_queue);
+	ts_block_queue_destroy(l->ts_pkt_queue);
 	pthread_mutex_destroy(&l->data_mutex);
 	pthread_cond_destroy(&l->msg_cond);
 	free(l);

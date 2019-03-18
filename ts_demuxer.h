@@ -125,7 +125,7 @@ typedef struct TS_PES_PACKET
 	PES_TYPE type;
 } TS_PES_PACKET;
 
-#include "pes_block_queue.h"
+#include "block_queue.h"
 
 // ts解封装器
 typedef struct TS_DEMUXER
@@ -138,7 +138,7 @@ typedef struct TS_DEMUXER
 	TS_PAT_PROGRAM *temp_programs;        // 临时节目数据
 	int temp_streams_count;               // 临时流总数
 	TS_PMT_STREAM *temp_streams;          // 临时流数据
-	PES_BLOCK_QUEUE *pes_pkt_queue;           // pes包缓存队列
+	BLOCK_QUEUE *pes_pkt_queue;           // pes包缓存队列
 } TS_DEMUXER;
 
 

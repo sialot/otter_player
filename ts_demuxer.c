@@ -30,7 +30,7 @@ TS_DEMUXER * ts_demuxer_create()
 		return NULL;
 	}
 	d->global_buffer_map = map;
-	PES_BLOCK_QUEUE *pes_pkt_queue = pes_block_queue_create(PES_BUFFER_COUNT);
+	BLOCK_QUEUE *pes_pkt_queue = block_queue_create(PES_BUFFER_COUNT);
 	if (pes_pkt_queue == NULL)
 	{
 		printf("[%s]ts_pkt_queue init failed!\n", __FUNCTION__);
@@ -39,6 +39,8 @@ TS_DEMUXER * ts_demuxer_create()
 		return NULL;
 	}
 	d->pes_pkt_queue = pes_pkt_queue;
+
+	printf("ts_demuxer_create complete! \n");
 	return d;
 }
 
@@ -79,14 +81,14 @@ int demux_ts_pkt_by_program_num(TS_DEMUXER *d, unsigned char * pTsBuf, int progr
 // 拉取 pes 包
 TS_PES_PACKET * poll_pes_pkt(TS_DEMUXER * d)
 {
-	TS_PES_PACKET *pkt = pes_block_queue_poll(d->pes_pkt_queue);
+	TS_PES_PACKET *pkt = block_queue_poll(d->pes_pkt_queue);
 	return pkt;
 }
 
 // 队列是否为空
 int is_pes_queue_empty(TS_DEMUXER *d)
 {
-	return is_pes_block_queue_empty(d->pes_pkt_queue);
+	return is_block_queue_empty(d->pes_pkt_queue);
 }
 
 // 摧毁解封装模块
@@ -1000,7 +1002,7 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, PES_TYPE type)
 	tp->pEsData = pPesByteList->pBytes + dataBegin;
 
 	// 把pes数据添加至处理队列
-	int add_res = pes_block_queue_push(d->pes_pkt_queue, tp);
+	int add_res = block_queue_push(d->pes_pkt_queue, tp);
 	if (add_res == -1)
 	{
 		_free_ts_pes_pkt(tp);

@@ -39,6 +39,8 @@ TS_DEMUXER * ts_demuxer_create()
 		return NULL;
 	}
 	d->pes_pkt_queue = pes_pkt_queue;
+
+	printf("ts_demuxer_create complete! \n");
 	return d;
 }
 

@@ -98,7 +98,7 @@ TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time)
 		loader->is_can_seek = 1;
 	}
 
-	printf("create_ts_loader>> url:%s, time:%d/%d, range:%lld/%lld \n", loader->media_url,
+	printf("ts_loader_create complete!>> url:%s, time:%d/%d, range:%lld/%lld \n", loader->media_url,
 		loader->start_time, loader->duration, loader->current_range, loader->media_file_size);
 	return loader;
 }

@@ -804,15 +804,13 @@ int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHea
 
 			if (pesBuffer->used_len > 0)
 			{
-				if (pHeader->PID == d->global_pmt->main_audio_PID) {
-					int rs = _read_pes(d, pesBuffer, AUDIO);
-				}
-				else
-				{
-					int rs = _read_pes(d, pesBuffer, VIDEO);
-				}
+				// 获得PES包数据
+				int rs = _read_pes(d, pesBuffer);
 
-				// 清空但不释放空间
+				// TODO
+				//tsDecoder.feedbackPes(pesPkt, p.PID);
+
+				// 清空但不释放空间 TODO
 				byte_list_clean(pesBuffer);
 			}
 		}
@@ -845,15 +843,13 @@ int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHea
 
 			if (is_byte_list_finish(pesBuffer)) {
 
-				if (pHeader->PID == d->global_pmt->main_audio_PID) {
-					int rs = _read_pes(d, pesBuffer, AUDIO);
-				}
-				else
-				{
-					int rs = _read_pes(d, pesBuffer, VIDEO);
-				}
+				// 获得PES包数据
+				int rs = _read_pes(d, pesBuffer);
 
-				// 清空但不释放空间
+				// TODO
+				//tsDecoder.feedbackPes(pesPkt, p.PID);
+
+				// 清空但不释放空间 TODO
 				byte_list_clean(pesBuffer);
 			}
 		}
@@ -867,7 +863,7 @@ int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHea
 }
 
 // 解析pes包
-int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, PES_TYPE type)
+int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList)
 {
 	TS_PES_PACKET *tp = (TS_PES_PACKET *)malloc(sizeof(TS_PES_PACKET));
 	unsigned char * pl = pPesByteList->pBytes;
@@ -893,7 +889,6 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, PES_TYPE type)
 	tp->PES_extension_flag = pl[7] & 0x1;
 	tp->PES_header_data_length = pl[8];
 	tp->pEsData = NULL;
-	tp->type = type;
 
 	// 可选域字节索引
 	int opt_field_idx = 9;

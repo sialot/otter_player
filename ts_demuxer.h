@@ -5,6 +5,7 @@
 #include "byte_list.h"
 #include "hash_map.h"
 
+
 // ts 头
 typedef struct TS_HEADER
 {
@@ -83,12 +84,6 @@ typedef struct TS_PMT
 	TS_PMT_STREAM *pStreams;                      // 流数据 
 } TS_PMT;
 
-typedef enum PES_TYPE
-{
-	VIDEO,
-	AUDIO
-}PES_TYPE;
-
 typedef struct TS_PES_PACKET
 {
 	unsigned pes_start_code_prefix         :24; // 起始码，固定必须是'0000 0000 0000 0000 0000 0001' (0x000001)。用于标识包的开始。
@@ -122,7 +117,6 @@ typedef struct TS_PES_PACKET
 	unsigned previous_PES_packet_CRC       :16; // 包含产生解码器中 16 寄存器零输出的 CRC 值
 	unsigned char * pEsData;                    // es 流数据
 	int es_data_len;
-	PES_TYPE type;
 } TS_PES_PACKET;
 
 #include "block_queue.h"
@@ -190,4 +184,4 @@ static int _ts_pmt_submit(TS_DEMUXER *d, TS_PMT pat);
 static int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader);
 
 // 解析pes包
-static int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, PES_TYPE type);
+static int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList);

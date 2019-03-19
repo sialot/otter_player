@@ -124,13 +124,23 @@ int fileRead(char *filePath) {
 
 	size_t rs = 0;
 	TS_DEMUXER *d = ts_demuxer_create(512);
+	unsigned char *pkt = malloc(sizeof(unsigned char) * 188);
 	do {
-		unsigned char *pkt = malloc(sizeof(unsigned char) * 188);
+		
 		rs = fread(pkt, 188, 1, tsFile);
-		if(rs > 0)
+		if (rs > 0)
+		{
 			demux_ts_pkt(d, pkt);
-		free(pkt);
+		}
+		while (!is_pes_queue_empty(d))
+		{
+			TS_PES_PACKET *pes = poll_pes_pkt(d);
+			printf("POLL PES >> length: %d\n", pes->es_data_len);
+			_free_ts_pes_pkt(pes);
+		}
+
 	} while (rs != 0);
+
 
 	ts_demuxer_destroy(d);
 

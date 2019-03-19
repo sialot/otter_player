@@ -2,7 +2,7 @@
 
 BLOCK_QUEUE * block_queue_create(int size)
 {
-	BLOCK_QUEUE *newQueue = (BLOCK_QUEUE *)malloc(sizeof(BLOCK_QUEUE) + sizeof(void *) * size);
+	BLOCK_QUEUE *newQueue = (BLOCK_QUEUE *)malloc(sizeof(BLOCK_QUEUE) + sizeof(void *) * (size + 1));
 	if (newQueue == NULL)
 	{
 		return NULL;
@@ -41,8 +41,6 @@ int block_queue_push(BLOCK_QUEUE *q, void *item)
 			pthread_mutex_unlock(&q->data_mutex);
 			return -1;
 		}
-
-		return -1;
 	}
 		
 	int tail_next = (q->tail + 1) % (q->size + 1);
@@ -88,6 +86,11 @@ int is_block_queue_full(BLOCK_QUEUE * q)
 
 int is_block_queue_empty(BLOCK_QUEUE * q)
 {
+	if (q == NULL)
+	{
+		return 1;
+	}
+
 	if (q->tail == q->head)
 	{
 		return 1;

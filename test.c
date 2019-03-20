@@ -6,6 +6,7 @@
 
 //#include <libavcodec/avcodec.h>
 #include "ts_demuxer.h"
+#include "decoder_master.h"
 //#include "block_queue.h"
 #include "player.h"
 
@@ -123,6 +124,7 @@ int fileRead(char *filePath) {
 
 	size_t rs = 0;
 	TS_DEMUXER *d = ts_demuxer_create(512);
+	DECODER_MASTER *m = decoder_master_create();
 	unsigned char *pkt = malloc(sizeof(unsigned char) * 188);
 	do {
 		
@@ -133,14 +135,13 @@ int fileRead(char *filePath) {
 		}
 		while (!is_pes_queue_empty(d))
 		{
-			FRAME_DATA *pes = poll_pes_pkt_by_type(d, 0x0f);
+			FRAME_DATA *pes = poll_pes_pkt(d);
 			printf("POLL PES >> length: %lld\n", pes->time_stamp);
-			frame_data_destory(pes);
+			decode_frame(m, pes);
 		}
 
 	} while (rs != 0);
-
-
+	decoder_master_destroy(m);
 	ts_demuxer_destroy(d);
 
 	if (fclose(tsFile))

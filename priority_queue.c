@@ -99,7 +99,7 @@ int priority_queue_push(PRIORITY_QUEUE *q, FRAME_DATA *item, unsigned long long 
 			q->head = item;
 		}
 	}
-	else if(cur->next = NULL)// 放队尾
+	else if(cur->next == NULL)// 放队尾
 	{
 		cur->next = item;
 		item->prev = cur;
@@ -213,9 +213,9 @@ int priority_queue_clean(PRIORITY_QUEUE * queue)
 
 int priority_queue_destroy(PRIORITY_QUEUE *queue)
 {
+	priority_queue_clean(queue);
 	pthread_mutex_destroy(&(queue->data_mutex));
 	pthread_cond_destroy(&(queue->msg_cond));
-	priority_queue_clean(queue);
 	free(queue);
 	return 0;
 }

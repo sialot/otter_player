@@ -111,9 +111,9 @@ int ts_block_queue_clean(BLOCK_QUEUE * queue)
 
 int ts_block_queue_destroy(BLOCK_QUEUE *queue)
 {
+	ts_block_queue_clean(queue);
 	pthread_mutex_destroy(&(queue->data_mutex));
 	pthread_cond_destroy(&(queue->msg_cond));
-	ts_block_queue_clean(queue);
 	free(queue);
 	return 0;
 }

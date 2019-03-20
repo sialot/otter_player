@@ -29,7 +29,8 @@ typedef struct TS_LOADER
 } TS_LOADER;
 
 // 多线程参数
-typedef struct _thread_param {
+typedef struct _thread_param
+{
 	TS_LOADER * loaderPointer;      // 加载器指针
 	long long start;                      // http请求range起始位置  
 	long long end;                        // http请求range结束位置

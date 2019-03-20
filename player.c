@@ -228,8 +228,8 @@ void _get_media_start_timestamp(OTTER_PLAYER * p)
 
 			while (!is_pes_queue_empty(p->demuxer) && !ibreak)
 			{
-				TS_PES_PACKET *pesPkt = poll_pes_pkt(p->demuxer);
-				p->media_start_timestamp = pesPkt->PTS;
+				FRAME_DATA *pesPkt = poll_pes_pkt(p->demuxer);
+				p->media_start_timestamp = pesPkt->time_stamp;
 				ibreak = 1;
 				printf("get start_timestamp:%lld \n", p->media_start_timestamp);
 				break;

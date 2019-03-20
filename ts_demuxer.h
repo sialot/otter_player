@@ -4,6 +4,7 @@
 #include <string.h>
 #include "byte_list.h"
 #include "hash_map.h"
+#include "priority_queue.h"
 
 // ts 头
 typedef struct TS_HEADER
@@ -53,12 +54,6 @@ typedef enum STREAM_TYPE
 	AUDIO
 }STREAM_TYPE;
 
-typedef enum TS_DECODER_TYPE
-{
-	H264,
-	AAC
-}TS_DECODER_TYPE;
-
 typedef struct TS_PMT_STREAM
 {
 	unsigned stream_type                     : 8;  // 流类型  h.264编码对应0x1b;aac编码对应0x0f;mp3编码对应0x03
@@ -66,7 +61,6 @@ typedef struct TS_PMT_STREAM
 	unsigned elementary_PID                  : 13; // 元素PID,与stream_type对应的PID
 	unsigned reserved2                       : 4;  // 保留字段，固定为1111
 	unsigned ES_info_length                  : 12; //  描述信息，指定为0x000表示没有
-	TS_DECODER_TYPE decoder_type;
 	STREAM_TYPE show_type;
 	unsigned char *pEsInfoBytes;
 } TS_PMT_STREAM;
@@ -128,13 +122,9 @@ typedef struct TS_PES_PACKET
 	unsigned rep_cntrl                     :5;  // 指示交错图像中每个字段应予显示的次数，或者连续图像应予显示的次数
 	unsigned additional_copy_info          :7;  // 此 7 比特字段包含与版权信息有关的专用数据
 	unsigned previous_PES_packet_CRC       :16; // 包含产生解码器中 16 寄存器零输出的 CRC 值
-	BYTE_LIST *pEsData;                         // es 流数据
-	int es_data_len;
 	STREAM_TYPE type;
-	TS_DECODER_TYPE decode_type;
+	unsigned stream_type;
 } TS_PES_PACKET;
-
-#include "block_queue.h"
 
 // ts解封装器
 typedef struct TS_DEMUXER
@@ -147,7 +137,7 @@ typedef struct TS_DEMUXER
 	TS_PAT_PROGRAM *temp_programs;        // 临时节目数据
 	int temp_streams_count;               // 临时流总数
 	TS_PMT_STREAM *temp_streams;          // 临时流数据
-	BLOCK_QUEUE *pes_pkt_queue;           // pes包缓存队列
+	PRIORITY_QUEUE *pkt_queue;
 } TS_DEMUXER;
 
 // 解封装模块创建
@@ -160,7 +150,8 @@ int demux_ts_pkt(TS_DEMUXER *d, unsigned char *pTsBuf);
 int demux_ts_pkt_by_program_num(TS_DEMUXER *d, unsigned char *pTsBuf, int programNum);
 
 // 拉取 pes 包
-TS_PES_PACKET * poll_pes_pkt(TS_DEMUXER *d);
+FRAME_DATA * poll_pes_pkt(TS_DEMUXER *d);
+FRAME_DATA * poll_pes_pkt_by_type(TS_DEMUXER *d, unsigned stream_type);
 
 // 队列是否为空
 int is_pes_queue_empty(TS_DEMUXER *d);

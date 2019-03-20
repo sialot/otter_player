@@ -117,23 +117,3 @@ int ts_block_queue_destroy(BLOCK_QUEUE *queue)
 	free(queue);
 	return 0;
 }
-
-int pes_block_queue_clean(BLOCK_QUEUE * queue)
-{
-	while (!is_block_queue_empty(queue))
-	{
-		TS_PES_PACKET * item = (TS_PES_PACKET *)block_queue_poll(queue);
-		_free_ts_pes_pkt(item);
-	}
-
-	return 0;
-}
-
-int pes_block_queue_destroy(BLOCK_QUEUE *queue)
-{
-	pthread_mutex_destroy(&(queue->data_mutex));
-	pthread_cond_destroy(&(queue->msg_cond));
-	pes_block_queue_clean(queue);
-	free(queue);
-	return 0;
-}

@@ -105,7 +105,6 @@ int main()
 long long my_atoll(char *instr)
 {
 	long long retval;
-	int i;
 
 	retval = 0;
 	for (; *instr; instr++) {
@@ -134,9 +133,9 @@ int fileRead(char *filePath) {
 		}
 		while (!is_pes_queue_empty(d))
 		{
-			TS_PES_PACKET *pes = poll_pes_pkt(d);
-			printf("POLL PES >> length: %d\n", pes->es_data_len);
-			_free_ts_pes_pkt(pes);
+			FRAME_DATA *pes = poll_pes_pkt_by_type(d, 0x0f);
+			printf("POLL PES >> length: %lld\n", pes->time_stamp);
+			frame_data_destory(pes);
 		}
 
 	} while (rs != 0);

@@ -11,12 +11,12 @@
 
 typedef struct FRAME_DATA
 {
-	int len;
-	unsigned char * data;
-	unsigned long long time_stamp;
+	int len; // 数据长度
+	unsigned char * data; // 数据
+	unsigned long long time_stamp; // 排序用时间戳
 	unsigned long long DTS;
 	unsigned long long PTS;
-	unsigned stream_type;
+	unsigned stream_type; // 流类型
 	struct FRAME_DATA *next;
 	struct FRAME_DATA *prev;
 } FRAME_DATA;

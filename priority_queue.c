@@ -129,7 +129,7 @@ FRAME_DATA * priority_queue_poll(PRIORITY_QUEUE *q)
 {
 	pthread_mutex_lock(&(q->data_mutex));
 
-	if (is_priority_queue_empty(q) || q->preparing)
+	if (is_priority_queue_empty(q))
 	{
 		if (0 != pthread_cond_wait(&(q->msg_cond), &(q->data_mutex)))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
 		{

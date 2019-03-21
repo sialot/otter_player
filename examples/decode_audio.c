@@ -33,7 +33,6 @@
 
 #include <libavutil/frame.h>
 #include <libavutil/mem.h>
-
 #include <libavcodec/avcodec.h>
 
 #define AUDIO_INBUF_SIZE 20480

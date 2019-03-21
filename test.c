@@ -6,6 +6,7 @@
 
 //#include <libavcodec/avcodec.h>
 #include "ts_demuxer.h"
+#include "decoder_master.h"
 //#include "block_queue.h"
 #include "player.h"
 
@@ -66,17 +67,14 @@ int main()
 
 	int r = fileRead("C:\\1.ts"); */
 
-	/*
+	
 	OTTER_PLAYER *p = create_player(1280,720);
 	char media_url[128] = "http://10.0.9.229/pub/1.ts";
 	set_media(p, media_url, 6519);
+	play_or_seek(p, 0);
+	
 
-	play(p);
-
-	play_by_time(p, 3000);
-	*/
-
-	fileRead("C:\\1.ts");
+	//fileRead("C:\\1.ts");
 
 	/*long long media_file_size = 34359738368000000;
 	printf("%lld\n", media_file_size);
@@ -105,7 +103,6 @@ int main()
 long long my_atoll(char *instr)
 {
 	long long retval;
-	int i;
 
 	retval = 0;
 	for (; *instr; instr++) {
@@ -124,15 +121,26 @@ int fileRead(char *filePath) {
 
 	size_t rs = 0;
 	TS_DEMUXER *d = ts_demuxer_create(512);
+	DECODER_MASTER *m = decoder_master_create();
+	unsigned char *pkt = malloc(sizeof(unsigned char) * 188);
 	do {
-		unsigned char *pkt = malloc(sizeof(unsigned char) * 188);
+		
 		rs = fread(pkt, 188, 1, tsFile);
-		if(rs > 0)
+		if (rs > 0)
+		{
 			demux_ts_pkt(d, pkt);
-		free(pkt);
-	} while (rs != 0);
+		}
+		while (!is_pes_queue_empty(d))
+		{
+			FRAME_DATA *pes = poll_pes_pkt(d);
+			printf("POLL PES >> length: %lld\n", pes->time_stamp);
+			decode_frame(m, pes);
+		}
 
+	} while (rs != 0);
+	decoder_master_destroy(m);
 	ts_demuxer_destroy(d);
+	free(pkt);
 
 	if (fclose(tsFile))
 	{

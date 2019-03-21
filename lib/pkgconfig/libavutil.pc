@@ -1,0 +1,14 @@
+prefix=./install
+exec_prefix=${prefix}
+libdir=./install/lib
+includedir=./install/include
+
+Name: libavutil
+Description: FFmpeg utility library
+Version: 
+Requires: 
+Requires.private: 
+Conflicts:
+Libs: -L${libdir}  -lavutil -pthread -lm
+Libs.private: 
+Cflags: -I${includedir}

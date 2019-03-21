@@ -29,7 +29,8 @@ typedef struct TS_LOADER
 } TS_LOADER;
 
 // 多线程参数
-typedef struct _thread_param {
+typedef struct _thread_param
+{
 	TS_LOADER * loaderPointer;      // 加载器指针
 	long long start;                      // http请求range起始位置  
 	long long end;                        // http请求range结束位置
@@ -40,6 +41,9 @@ TS_LOADER * ts_loader_create(char *pMediaUrl, int duration, int start_time);
 
 // 范围加载（部分加载，每次调用按PKT_NUM_PER_TIME向后加载）
 void ts_loader_range_load(TS_LOADER *l);
+
+// 找指定时间
+void ts_loader_seek(TS_LOADER *l, int start_time);
 
 // 拉取 ts 包
 BYTE_LIST * poll_ts_pkt(TS_LOADER *l);

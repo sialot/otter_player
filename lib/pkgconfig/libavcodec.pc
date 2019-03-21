@@ -1,0 +1,14 @@
+prefix=./install
+exec_prefix=${prefix}
+libdir=./install/lib
+includedir=./install/include
+
+Name: libavcodec
+Description: FFmpeg codec library
+Version: 
+Requires: libavutil >=
+Requires.private: 
+Conflicts:
+Libs: -L${libdir}  -lavcodec -pthread -lm
+Libs.private: 
+Cflags: -I${includedir}

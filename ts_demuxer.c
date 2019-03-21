@@ -1,7 +1,7 @@
 ﻿#include "ts_demuxer.h"
 
 // 每次缓存的最大pes包数 50 * 80000 约 4mb
-const int PES_BUFFER_COUNT = 50;
+const int BUFFER_COUNT = 150;
 
 // 解封装模块创建
 TS_DEMUXER * ts_demuxer_create()
@@ -17,7 +17,7 @@ TS_DEMUXER * ts_demuxer_create()
 	d->global_buffer_map = NULL;
 	d->temp_programs = NULL;
 	d->temp_streams = NULL;
-	d->pes_pkt_queue = NULL;
+	d->pkt_queue = NULL;
 	d->cur_program_num = -1;
 	d->temp_programs_count = 0;
 	d->temp_streams_count = 0;
@@ -30,15 +30,16 @@ TS_DEMUXER * ts_demuxer_create()
 		return NULL;
 	}
 	d->global_buffer_map = map;
-	BLOCK_QUEUE *pes_pkt_queue = block_queue_create(PES_BUFFER_COUNT);
-	if (pes_pkt_queue == NULL)
+
+	PRIORITY_QUEUE *pkt_queue = priority_queue_create(BUFFER_COUNT, 30);
+	if (pkt_queue == NULL)
 	{
 		printf("[%s]ts_pkt_queue init failed!\n", __FUNCTION__);
 		hash_map_destroy(d->global_buffer_map);
 		ts_demuxer_destroy(d);
 		return NULL;
 	}
-	d->pes_pkt_queue = pes_pkt_queue;
+	d->pkt_queue = pkt_queue;
 
 	printf("ts_demuxer_create complete! \n");
 	return d;
@@ -79,16 +80,29 @@ int demux_ts_pkt_by_program_num(TS_DEMUXER *d, unsigned char * pTsBuf, int progr
 }
 
 // 拉取 pes 包
-TS_PES_PACKET * poll_pes_pkt(TS_DEMUXER * d)
+FRAME_DATA * poll_pes_pkt(TS_DEMUXER * d)
 {
-	TS_PES_PACKET *pkt = block_queue_poll(d->pes_pkt_queue);
+	FRAME_DATA *pkt = priority_queue_poll(d->pkt_queue);
 	return pkt;
+}
+
+// 按 视频\音频 拉pes包
+FRAME_DATA * poll_pes_pkt_by_type(TS_DEMUXER * d, unsigned stream_type)
+{
+	FRAME_DATA *pkt = priority_queue_poll_by_type(d->pkt_queue, stream_type);
+	return pkt;
+}
+
+// 清空队列
+void pes_queue_clean(TS_DEMUXER * d)
+{
+	priority_queue_clean(d->pkt_queue);
 }
 
 // 队列是否为空
 int is_pes_queue_empty(TS_DEMUXER *d)
 {
-	return is_block_queue_empty(d->pes_pkt_queue);
+	return is_priority_queue_empty(d->pkt_queue);
 }
 
 // 摧毁解封装模块
@@ -113,7 +127,7 @@ void ts_demuxer_destroy(TS_DEMUXER * d)
 	_free_ts_pmt_stream(d->temp_streams);
 
 	// queue
-	pes_block_queue_destroy(d->pes_pkt_queue);
+	priority_queue_destroy(d->pkt_queue);
 
 	// self
 	free(d);
@@ -163,10 +177,6 @@ static void _free_ts_pmt(TS_PMT *pPmt)
 void _free_ts_pes_pkt(TS_PES_PACKET *pPesPkt) {
 	if (pPesPkt == NULL)
 		return;
-	if (pPesPkt->pEsData != NULL)
-	{
-		free(pPesPkt->pEsData);
-	}
 	free(pPesPkt);
 	return;
 }
@@ -414,7 +424,7 @@ static int _read_ts_PAT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHead
 		d->cur_program_num = d->global_pat->pPrograms[0].program_number;
 	}
 
-	/* TEST LOG */
+	/* TEST LOG 
 	for (int i = 0; i < d->global_pat->program_count; i++) {
 		
 		printf("program_number:%d,reserved:%d,PID:%d\n",
@@ -422,7 +432,7 @@ static int _read_ts_PAT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHead
 			d->global_pat->pPrograms[i].reserved,
 			d->global_pat->pPrograms[i].PID);
 	
-	}
+	}*/
 	return 0;
 }
 
@@ -664,6 +674,15 @@ int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 			s.ES_info_length = ((pmt_loop_data_buffer->pBytes[pos + 3] & 0xf) << 8) | pmt_loop_data_buffer->pBytes[pos + 4];
 			s.pEsInfoBytes = NULL;	// TODO 暂未解析
 
+			if (s.stream_type == 0x1b)
+			{
+				s.av_type = VIDEO;
+			}
+			if (s.stream_type == 0x0f)
+			{
+				s.av_type = AUDIO;
+			}
+
 			if (s.ES_info_length > 0) {
 
 				// TODO 暂未解析
@@ -679,7 +698,7 @@ int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 	}
 	_ts_pmt_submit(d, tempPmt);
 	
-	/* TEST LOG */
+	/* TEST LOG 
 	for (int i = 0; i < d->global_pmt->stream_count; i++) {
 
 		printf("stream_type:%d,elementary_PID:%d,ES_info_length:%d\n",
@@ -687,7 +706,7 @@ int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 			d->global_pmt->pStreams[i].elementary_PID,
 			d->global_pmt->pStreams[i].ES_info_length);
 	}
-
+	*/
 	return 0;
 }
 
@@ -804,12 +823,16 @@ int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHea
 
 			if (pesBuffer->used_len > 0)
 			{
-				if (pHeader->PID == d->global_pmt->main_audio_PID) {
-					int rs = _read_pes(d, pesBuffer, AUDIO);
-				}
-				else
+				if (pHeader->PID == d->global_pmt->main_audio_PID 
+					|| pHeader->PID == d->global_pmt->main_video_PID)
 				{
-					int rs = _read_pes(d, pesBuffer, VIDEO);
+					for (int i = 0; i < d->global_pmt->stream_count; i++)
+					{
+						if (pHeader->PID == d->global_pmt->pStreams[i].elementary_PID)
+						{
+							_read_pes(d, pesBuffer, d->global_pmt->pStreams[i]);
+						}
+					}
 				}
 
 				// 清空但不释放空间
@@ -845,12 +868,16 @@ int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHea
 
 			if (is_byte_list_finish(pesBuffer)) {
 
-				if (pHeader->PID == d->global_pmt->main_audio_PID) {
-					int rs = _read_pes(d, pesBuffer, AUDIO);
-				}
-				else
+				if (pHeader->PID == d->global_pmt->main_audio_PID
+					|| pHeader->PID == d->global_pmt->main_video_PID)
 				{
-					int rs = _read_pes(d, pesBuffer, VIDEO);
+					for (int i = 0; i < d->global_pmt->stream_count; i++)
+					{
+						if (pHeader->PID == d->global_pmt->pStreams[i].elementary_PID)
+						{
+							_read_pes(d, pesBuffer, d->global_pmt->pStreams[i]);
+						}
+					}
 				}
 
 				// 清空但不释放空间
@@ -867,7 +894,7 @@ int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHea
 }
 
 // 解析pes包
-int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, PES_TYPE type)
+int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 {
 	TS_PES_PACKET *tp = (TS_PES_PACKET *)malloc(sizeof(TS_PES_PACKET));
 	unsigned char * pl = pPesByteList->pBytes;
@@ -892,8 +919,8 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, PES_TYPE type)
 	tp->PES_CRC_flag = pl[7] >> 1 & 0x1;
 	tp->PES_extension_flag = pl[7] & 0x1;
 	tp->PES_header_data_length = pl[8];
-	tp->pEsData = NULL;
-	tp->type = type;
+	tp->av_type = s.av_type;
+	tp->stream_type = s.stream_type;
 
 	// 可选域字节索引
 	int opt_field_idx = 9;
@@ -907,6 +934,7 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, PES_TYPE type)
 			pl[opt_field_idx + 3] << 7 |
 			(pl[opt_field_idx + 4] >> 1 & 0x7f);
 		opt_field_idx += 5;
+		tp->DTS = tp->PTS;
 	}
 	else if (tp->PTS_DTS_flags == 0x3) {
 		tp->PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
@@ -999,18 +1027,27 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, PES_TYPE type)
 	// 截取payload
 	int dataBegin = 9 + tp->PES_header_data_length;
 	int es_data_len = pPesByteList->used_len - dataBegin;
-	tp->pEsData = pPesByteList->pBytes + dataBegin;
 
-	// 把pes数据添加至处理队列
-	int add_res = block_queue_push(d->pes_pkt_queue, tp);
-	if (add_res == -1)
+	unsigned char *pEsData = malloc(sizeof(unsigned char) * es_data_len);
+	if (pEsData == NULL)
 	{
+		printf("create *pEsData failed!\n");
 		_free_ts_pes_pkt(tp);
 		return -1;
 	}
-	
-	printf("read pes: buffer:  %d/%d\n", pPesByteList->used_len, pPesByteList->finish_len);
-	printf("read pes: es data len:  %d\n", es_data_len);
-	free(tp);
+
+	memcpy(pEsData, pPesByteList->pBytes + dataBegin, es_data_len);
+
+	FRAME_DATA *fdata = frame_data_create(tp->av_type, tp->stream_type, tp->DTS, tp->PTS, pEsData, es_data_len);
+
+	int add_res = priority_queue_push(d->pkt_queue, fdata, tp->DTS);
+	if (add_res == -1)
+	{
+		printf("push pes failed!\n");
+		_free_ts_pes_pkt(tp);
+		return -1;
+	}
+
+	//printf("push pes: es data len:  %d\n", es_data_len);
 	return 0;
 }

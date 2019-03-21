@@ -1,7 +1,10 @@
 #include "decoder_master.h"
 
+// 最大缓存帧数，音频+视频
 const int MAX_BUFFER_FRAME_COUNT = 4000;
-const int MAX_PREBUFFER_FRAME_COUNT = 1500;
+
+// 最小预加载帧数
+const int MAX_PREBUFFER_FRAME_COUNT = 1000;
 
 // 创建对象
 DECODER_MASTER * decoder_master_create()
@@ -28,6 +31,8 @@ DECODER_MASTER * decoder_master_create()
 // 解码
 int decode_frame(DECODER_MASTER * d, FRAME_DATA * f)
 {
+
+	// 获取对应解码器
 	DECODER *decoder = _get_decoder(d, f->stream_type);
 	if (decoder == NULL)
 	{
@@ -35,13 +40,16 @@ int decode_frame(DECODER_MASTER * d, FRAME_DATA * f)
 		return -1;
 	}
 
-	FRAME_DATA *js_frame = decoder->decode(f);
-	if (js_frame == NULL)
+	// 解码并添加js帧到展示队列
+	int ret = decoder->decode_frame(decoder, f, d->js_frame_queue);
+	if (ret < 0)
 	{
-		printf("decode failed!play failed! \n");
+		printf("decode failed! \n");
 		return -1;
 	}
-	priority_queue_push(d->js_frame_queue, js_frame, js_frame->PTS);
+
+	// 销毁pes帧数据
+	frame_data_destory(f);
 	return 0;
 }
 

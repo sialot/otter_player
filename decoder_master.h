@@ -3,17 +3,18 @@
 #include <stdlib.h>
 #include "priority_queue.h"
 
-typedef FRAME_DATA * (*DecoderDecodeFunc)(FRAME_DATA * pData);
-
+// 解码器定义
 typedef struct DECODER
 {
-	DecoderDecodeFunc  decode;
+	int(*decode_frame)(void *, FRAME_DATA *, PRIORITY_QUEUE *);
+
+	// TODO
 } DECODER;
 
 #include "aac_decoder.h"
 #include "h264_decoder.h"
 
-// 解码器管理
+// 解码器管理员
 typedef struct DECODER_MASTER
 {
 	PRIORITY_QUEUE *js_frame_queue;

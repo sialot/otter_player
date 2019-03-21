@@ -11,4 +11,4 @@
 
 DECODER * aac_decoder_create();
 
-FRAME_DATA * aac_decode_func(FRAME_DATA * pPesPkt);
+int aac_decode_func(void * d, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue);

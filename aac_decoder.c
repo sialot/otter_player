@@ -7,11 +7,11 @@ DECODER * aac_decoder_create()
 	{
 		return NULL;
 	}
-	aac_decoder->decode = aac_decode_func;
+	aac_decoder->decode_frame = aac_decode_func;
 	return aac_decoder;
 }
 
-FRAME_DATA * aac_decode_func(FRAME_DATA * pPesPkt)
+int aac_decode_func(void * d, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue)
 {
 	printf("aac decoding\n");
 	return pPesPkt;

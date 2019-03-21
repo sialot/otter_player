@@ -11,4 +11,4 @@
 
 DECODER * h264_decoder_create();
 
-FRAME_DATA * h264_decode_func(FRAME_DATA * pPesPkt);
+int h264_decode_func(void * d, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue);

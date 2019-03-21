@@ -14,7 +14,7 @@ function JS_XHRGetFileSize(loadPtr, url) {
                 if (content_range != undefined) {
                     size = content_range.split("/")[1];
                 }
-                console.log("C CALL JS, JS_XHRGetFileSize success, size:" + size);
+                //console.log("C CALL JS, JS_XHRGetFileSize success, size:" + size);
                 Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'string'], [loadPtr, size]);
             }
             else {
@@ -48,13 +48,11 @@ function JS_XHRGetFile(loadPtr, url, start, end) {
                         Module.HEAP8[ptr + i] = byteArray[i];
                     }
 
-                    console.log("C CALL JS, JS_XHRGetFile success");
+                    //console.log("C CALL JS, JS_XHRGetFile success");
                     Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, ptr, len]);
-
-                    // console.log("JS_XHRGetFile free data ptr");
                     Module._free(ptr);
                 } else {
-                    console.log("C CALL JS, JS_XHRGetFile success but no data");
+                    //console.log("C CALL JS, JS_XHRGetFile success but no data");
                     Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, 0, len]);
                 }
             }
@@ -86,13 +84,13 @@ function _player(c_player) {
         return;
     };
     this.play = function () {
-        Module._play(this.c_player, 0);
+        Module._play_or_seek(this.c_player, 0);
     };
     this.seek = function (time) {
-        Module._play_by_time(this.c_player, time);
+        Module._play_or_seek(this.c_player, time);
     };
     this.stop = function () {
-        Module._stop(this.c_player);
+        Module._destroy_player(this.c_player);
     };
 }
 

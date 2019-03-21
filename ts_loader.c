@@ -23,6 +23,9 @@ const int PKT_NUM_PER_TIME = 500;
 // 包缓存数量 约 1mb
 const int PKT_BUFFER_COUNT = 5000;
 
+FILE *tsFile = NULL;
+
+
 // 创建加载器
 TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time)
 {
@@ -98,12 +101,13 @@ TS_LOADER * ts_loader_create(char * mediaUrl, int duration, int start_time)
 		loader->is_can_seek = 1;
 	}
 
-	printf("ts_loader_create complete!>> url:%s, time:%d/%d, range:%lld/%lld \n", loader->media_url,
-		loader->start_time, loader->duration, loader->current_range, loader->media_file_size);
+	//printf("ts_loader_create complete!>> url:%s, time:%d/%d, range:%lld/%lld \n", loader->media_url,
+	//	loader->start_time, loader->duration, loader->current_range, loader->media_file_size);
 	return loader;
 }
 
 // 部分加载数据
+#if defined(__EMSCRIPTEN__)
 void ts_loader_range_load(TS_LOADER *l)
 {
 	if (l->is_finish)
@@ -118,6 +122,70 @@ void ts_loader_range_load(TS_LOADER *l)
 		printf("l->current_range >= l->media_file_size .is_finish = 1\n");
 		l->is_finish = 1;
 	}
+}
+#else
+void ts_loader_range_load(TS_LOADER * l)
+{
+	if (tsFile == NULL)
+	{
+		if ((tsFile = fopen("C:\\1.ts", "rb")) == NULL)
+		{
+			printf("file not exist!\n");
+		}
+	}
+	unsigned char *pkt = malloc(sizeof(unsigned char) * 188 * PKT_NUM_PER_TIME);
+
+	int rs = fread(pkt, 188 * PKT_NUM_PER_TIME, 1, tsFile);
+	int len = 188 * PKT_NUM_PER_TIME;
+	if (len == 0)
+	{
+		printf("len=0.is_finish = 1\n");
+		l->is_finish = 1;
+		return;
+	}
+
+	for (int i = 0; i < len / 188; i++)
+	{
+		unsigned char * data = pkt + i * 188;
+		BYTE_LIST *pkt = byte_list_create(188);
+		byte_list_add_list(pkt, data, 188);
+		block_queue_push(l->ts_pkt_queue, pkt);
+	}
+
+	free(pkt);
+	return;
+}
+#endif
+
+// 找指定时间
+void ts_loader_seek(TS_LOADER * l, int start_time)
+{
+	if (!l->is_can_seek)
+	{
+		return;
+	}
+
+	if (start_time < 0)
+	{
+		printf("ts_loader_seek failed.start_time < 0! \n");
+		return;
+	}
+
+	if (l->start_time > l->duration)
+	{
+		l->current_range = l->media_file_size;
+		printf("loader->start_time > loader->duration.is_finish = 1\n");
+		l->is_finish = 1;
+	}
+
+	if (l->media_file_size > 0 && l->duration > 0)
+	{
+		long long wishSize = ((double)l->start_time / (double)l->duration) * l->media_file_size;
+		l->current_range = (long long)floor(wishSize / 188.0) * 188;
+		l->is_can_seek = 1;
+		ts_block_queue_clean(l->ts_pkt_queue);
+	}
+	return;
 }
 
 // 拉取 ts 包
@@ -148,6 +216,7 @@ void ts_loader_destroy(TS_LOADER * l)
 }
 
 // 获取文件大小
+#if defined(__EMSCRIPTEN__)
 void _get_file_size(TS_LOADER * l)
 {
 	if (l->media_file_size != -1)
@@ -164,6 +233,13 @@ void _get_file_size(TS_LOADER * l)
 	pthread_join(l->http_thread, NULL);
 	pthread_join(l->wait_http_thread, NULL);
 }
+#else
+void _get_file_size(TS_LOADER * l)
+{
+
+	return;
+}
+#endif
 
 // 获取文件数据
 void _get_file_data(TS_LOADER * l)
@@ -174,7 +250,7 @@ void _get_file_data(TS_LOADER * l)
 	args.end = l->current_range + PKT_NUM_PER_TIME * 188 - 1;
 	l->current_range += PKT_NUM_PER_TIME * 188;
 
-	printf("_get_file_data start, range: %lld - %lld / %lld \n", args.start, args.end, l->media_file_size);
+	//printf("_get_file_data start, range: %lld - %lld / %lld \n", args.start, args.end, l->media_file_size);
 
 	pthread_create(&l->wait_http_thread, NULL, _wait_http_result, (void *)&args);
 	pthread_create(&l->http_thread, NULL, _call_xhr_load_file, (void *)&args);
@@ -206,7 +282,7 @@ EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, char * size)
 {
 	pthread_mutex_lock(&l->data_mutex);
 	l->media_file_size = _char_to_longlong(size);
-	printf("_xhr_on_file_size_success, size:%lld\n", l->media_file_size);
+	//printf("_xhr_on_file_size_success, size:%lld\n", l->media_file_size);
 
 	// 通知 _wait_xhr_get_file_size 结果已返回
 	pthread_cond_signal(&l->msg_cond);
@@ -240,7 +316,7 @@ void _js_xhr_load_file(TS_LOADER * l, char * url, char * start, char * end) {};
 EM_PORT_API(void) _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int len)
 {
 	pthread_mutex_lock(&l->data_mutex);
-	printf("_xhr_on_load_success, len:%d \n", len);
+	//printf("_xhr_on_load_success, len:%d \n", len);
 	if (len == 0)
 	{
 		printf("len=0.is_finish = 1\n");
@@ -274,7 +350,7 @@ void *_wait_http_result(void * args)
 		return NULL;
 	}
 
-	printf("pthread_cond_wait over !\n");
+	//printf("pthread_cond_wait over !\n");
 	pthread_mutex_unlock(&l->data_mutex);
 	return NULL;
 }
@@ -283,7 +359,6 @@ void *_wait_http_result(void * args)
 long long _char_to_longlong(char * instr)
 {
 	long long retval;
-	int i;
 
 	retval = 0;
 	for (; *instr; instr++) {

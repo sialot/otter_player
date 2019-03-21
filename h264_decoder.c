@@ -13,8 +13,7 @@ DECODER * h264_decoder_create()
 
 int h264_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue)
 {
-	printf("h264 decoding\n");
-	return pPesPkt;
+	return 0;
 }
 void h264_decode_destory(DECODER *d)
 {

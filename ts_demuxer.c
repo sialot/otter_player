@@ -86,10 +86,17 @@ FRAME_DATA * poll_pes_pkt(TS_DEMUXER * d)
 	return pkt;
 }
 
+// 按 视频\音频 拉pes包
 FRAME_DATA * poll_pes_pkt_by_type(TS_DEMUXER * d, unsigned stream_type)
 {
 	FRAME_DATA *pkt = priority_queue_poll_by_type(d->pkt_queue, stream_type);
 	return pkt;
+}
+
+// 清空队列
+void pes_queue_clean(TS_DEMUXER * d)
+{
+	priority_queue_clean(d->pkt_queue);
 }
 
 // 队列是否为空
@@ -667,6 +674,15 @@ int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 			s.ES_info_length = ((pmt_loop_data_buffer->pBytes[pos + 3] & 0xf) << 8) | pmt_loop_data_buffer->pBytes[pos + 4];
 			s.pEsInfoBytes = NULL;	// TODO 暂未解析
 
+			if (s.stream_type == 0x1b)
+			{
+				s.av_type = VIDEO;
+			}
+			if (s.stream_type == 0x0f)
+			{
+				s.av_type = AUDIO;
+			}
+
 			if (s.ES_info_length > 0) {
 
 				// TODO 暂未解析
@@ -903,7 +919,7 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 	tp->PES_CRC_flag = pl[7] >> 1 & 0x1;
 	tp->PES_extension_flag = pl[7] & 0x1;
 	tp->PES_header_data_length = pl[8];
-	tp->type = s.show_type;
+	tp->av_type = s.av_type;
 	tp->stream_type = s.stream_type;
 
 	// 可选域字节索引
@@ -1022,7 +1038,7 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 
 	memcpy(pEsData, pPesByteList->pBytes + dataBegin, es_data_len);
 
-	FRAME_DATA *fdata = frame_data_create(tp->stream_type, tp->DTS, tp->PTS, pEsData, es_data_len);
+	FRAME_DATA *fdata = frame_data_create(tp->av_type, tp->stream_type, tp->DTS, tp->PTS, pEsData, es_data_len);
 
 	int add_res = priority_queue_push(d->pkt_queue, fdata, tp->DTS);
 	if (add_res == -1)
@@ -1032,6 +1048,6 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 		return -1;
 	}
 
-	printf("push pes: es data len:  %d\n", es_data_len);
+	//printf("push pes: es data len:  %d\n", es_data_len);
 	return 0;
 }

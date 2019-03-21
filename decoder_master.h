@@ -32,6 +32,9 @@ DECODER_MASTER * decoder_master_create();
 // 解码
 int decode_frame(DECODER_MASTER *d, FRAME_DATA * f);
 
+// 清空结果
+void decode_queue_clean(DECODER_MASTER *d);
+
 // 销毁对象
 void decoder_master_destroy(DECODER_MASTER * d);
 

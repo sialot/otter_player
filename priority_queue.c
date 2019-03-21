@@ -1,6 +1,6 @@
 #include "priority_queue.h"
 
-FRAME_DATA * frame_data_create(unsigned stream_type, unsigned long long DTS, unsigned long long PTS, unsigned char * data, int len)
+FRAME_DATA * frame_data_create(FRAME_AV_TYPE av_type, unsigned stream_type, unsigned long long DTS, unsigned long long PTS, unsigned char * data, int len)
 {
 	FRAME_DATA *f = (FRAME_DATA *)malloc(sizeof(FRAME_DATA));
 	if (!f)
@@ -8,6 +8,7 @@ FRAME_DATA * frame_data_create(unsigned stream_type, unsigned long long DTS, uns
 		printf("frame_data_create failed \n");
 		return NULL;
 	}
+	f->av_type = av_type;
 	f->stream_type = stream_type;
 	f->time_stamp = 0;
 	f->DTS = DTS;
@@ -61,7 +62,7 @@ int priority_queue_push(PRIORITY_QUEUE *q, FRAME_DATA *item, unsigned long long 
 {
 	pthread_mutex_lock(&q->data_mutex);
 
-	if (is_priority_queue_full(q))
+	while (is_priority_queue_full(q))
 	{
 		if (0 != pthread_cond_wait(&q->msg_cond, &q->data_mutex))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
 		{
@@ -119,9 +120,9 @@ int priority_queue_push(PRIORITY_QUEUE *q, FRAME_DATA *item, unsigned long long 
 	{
 		q->preparing = 0;
 	}
-
+	printf("queue userd %d/%d \n", q->used, q->size);
+	pthread_cond_broadcast(&(q->msg_cond));
 	pthread_mutex_unlock(&(q->data_mutex));
-	pthread_cond_signal(&(q->msg_cond));
 	return 0;
 }
 
@@ -129,7 +130,7 @@ FRAME_DATA * priority_queue_poll(PRIORITY_QUEUE *q)
 {
 	pthread_mutex_lock(&(q->data_mutex));
 
-	if (is_priority_queue_empty(q))
+	while (is_priority_queue_empty(q))
 	{
 		if (0 != pthread_cond_wait(&(q->msg_cond), &(q->data_mutex)))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
 		{
@@ -151,18 +152,33 @@ FRAME_DATA * priority_queue_poll(PRIORITY_QUEUE *q)
 	{
 		q->preparing = 1;
 	}
-
+	pthread_cond_broadcast(&(q->msg_cond));
 	pthread_mutex_unlock(&(q->data_mutex));
-	pthread_cond_signal(&(q->msg_cond));
 	return item;
 }
 
-FRAME_DATA * priority_queue_poll_by_type(PRIORITY_QUEUE *q, unsigned stream_type)
+int _is_type_ok(PRIORITY_QUEUE *q, FRAME_AV_TYPE av_type)
+{
+	int is_ok = 0;
+
+	if (q->head != NULL)
+	{
+		if (q->head->av_type == av_type)
+		{
+			is_ok = 1;
+		}
+	}
+
+	return is_ok;
+}
+
+FRAME_DATA * priority_queue_poll_by_type(PRIORITY_QUEUE *q, FRAME_AV_TYPE av_type)
 {
 	pthread_mutex_lock(&(q->data_mutex));
 
-	if (is_priority_queue_empty(q) || q->preparing || q->head->stream_type != stream_type)
+	while (is_priority_queue_empty(q) || q->preparing || !_is_type_ok(q, av_type))
 	{
+		printf("%d  %d  %d \n", is_priority_queue_empty(q), q->preparing, !_is_type_ok(q, av_type));
 		if (0 != pthread_cond_wait(&(q->msg_cond), &(q->data_mutex)))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
 		{
 			printf("[%s]: queue is empty\n", __FUNCTION__);
@@ -184,9 +200,8 @@ FRAME_DATA * priority_queue_poll_by_type(PRIORITY_QUEUE *q, unsigned stream_type
 	{
 		q->preparing = 1;
 	}
-
+	pthread_cond_broadcast(&(q->msg_cond));
 	pthread_mutex_unlock(&(q->data_mutex));
-	pthread_cond_signal(&(q->msg_cond));
 	return item;
 }
 
@@ -202,12 +217,13 @@ int is_priority_queue_empty(PRIORITY_QUEUE * q)
 
 int priority_queue_clean(PRIORITY_QUEUE * queue)
 {
+	pthread_mutex_lock(&queue->data_mutex);
 	while (!is_priority_queue_empty(queue))
 	{
 		FRAME_DATA * item = (FRAME_DATA *)priority_queue_poll(queue);
 		frame_data_destory(item);
 	}
-
+	pthread_mutex_unlock(&(queue->data_mutex));
 	return 0;
 }
 

@@ -36,7 +36,7 @@ int decode_frame(DECODER_MASTER * d, FRAME_DATA * f)
 	DECODER *decoder = _get_decoder(d, f->stream_type);
 	if (decoder == NULL)
 	{
-		printf("unsurported stream_type!play failed! \n");
+		printf("unsurported stream_type:%d !play failed! \n", f->stream_type);
 		return -1;
 	}
 
@@ -47,10 +47,13 @@ int decode_frame(DECODER_MASTER * d, FRAME_DATA * f)
 		printf("decode failed! \n");
 		return -1;
 	}
-
-	// 销毁pes帧数据
-	frame_data_destory(f);
 	return 0;
+}
+
+// 清空结果
+void decode_queue_clean(DECODER_MASTER * d)
+{
+	priority_queue_clean(d->js_frame_queue);
 }
 
 // 销毁对象

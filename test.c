@@ -67,17 +67,14 @@ int main()
 
 	int r = fileRead("C:\\1.ts"); */
 
-	/*
+	
 	OTTER_PLAYER *p = create_player(1280,720);
 	char media_url[128] = "http://10.0.9.229/pub/1.ts";
 	set_media(p, media_url, 6519);
+	play_or_seek(p, 0);
+	
 
-	play(p);
-
-	play_by_time(p, 3000);
-	*/
-
-	fileRead("C:\\1.ts");
+	//fileRead("C:\\1.ts");
 
 	/*long long media_file_size = 34359738368000000;
 	printf("%lld\n", media_file_size);

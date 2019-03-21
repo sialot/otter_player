@@ -69,7 +69,6 @@ DECODER * aac_decoder_create()
 // aac解码
 int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue)
 {
-	printf("aac decoding\n");
 	DECODER *d = (DECODER *)pDecoder;
 
 	// 输入数据，输入长度
@@ -104,7 +103,7 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 		while (ret >= 0) {
 			ret = avcodec_receive_frame(d->context, d->decoded_frame);
 			if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-				return -1;
+				return 0;
 			else if (ret < 0) {
 				printf("Error during decoding\n");
 				return -1;
@@ -132,11 +131,11 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 				}
 			}
 
-			FRAME_DATA *out_frame = frame_data_create(pPesPkt->stream_type, pPesPkt->DTS, pPesPkt->PTS, js_frame_data, js_frame_data_len);
+			FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x01, pPesPkt->DTS, pPesPkt->PTS, js_frame_data, js_frame_data_len);
 			priority_queue_push(queue, out_frame, out_frame->PTS);
 
 			printf("get pcm data.nb_samples:%d, channels:%d, data_size:%d, total_size:%d \n ", d->decoded_frame->nb_samples,
-				d->context->channels, data_size, js_frame_data_len);
+				d->context->channels, (int)data_size, js_frame_data_len);
 		}
 	}
 

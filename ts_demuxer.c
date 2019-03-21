@@ -31,7 +31,7 @@ TS_DEMUXER * ts_demuxer_create()
 	}
 	d->global_buffer_map = map;
 
-	PRIORITY_QUEUE *pkt_queue = priority_queue_create(BUFFER_COUNT, 0);
+	PRIORITY_QUEUE *pkt_queue = priority_queue_create(BUFFER_COUNT, 30);
 	if (pkt_queue == NULL)
 	{
 		printf("[%s]ts_pkt_queue init failed!\n", __FUNCTION__);
@@ -918,6 +918,7 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 			pl[opt_field_idx + 3] << 7 |
 			(pl[opt_field_idx + 4] >> 1 & 0x7f);
 		opt_field_idx += 5;
+		tp->DTS = tp->PTS;
 	}
 	else if (tp->PTS_DTS_flags == 0x3) {
 		tp->PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |

@@ -1,7 +1,7 @@
 #include "decoder_master.h"
 
 // 最大缓存帧数，音频+视频
-const int MAX_BUFFER_FRAME_COUNT = 1000;
+const int MAX_BUFFER_FRAME_COUNT = 2000;
 
 // 最小预加载帧数
 const int MAX_PREBUFFER_FRAME_COUNT = 450;

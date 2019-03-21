@@ -22,6 +22,7 @@ FRAME_DATA * frame_data_create(FRAME_AV_TYPE av_type, unsigned stream_type, unsi
 
 void frame_data_destory(FRAME_DATA * f)
 {
+	printf("frame_data_destory %p \n", f);
 	free(f->data);
 	free(f);
 }
@@ -76,6 +77,7 @@ int priority_queue_push(PRIORITY_QUEUE *q, FRAME_DATA *item, unsigned long long 
 	FRAME_DATA *cur = q->tail;
 	while (cur != NULL)
 	{
+		printf("cur %p \n", cur);
 		if (cur->time_stamp <= item->time_stamp)
 		{
 			break;
@@ -121,8 +123,8 @@ int priority_queue_push(PRIORITY_QUEUE *q, FRAME_DATA *item, unsigned long long 
 		q->preparing = 0;
 	}
 	printf("queue userd %d/%d \n", q->used, q->size);
-	pthread_cond_broadcast(&(q->msg_cond));
 	pthread_mutex_unlock(&(q->data_mutex));
+	pthread_cond_broadcast(&(q->msg_cond));
 	return 0;
 }
 
@@ -152,8 +154,8 @@ FRAME_DATA * priority_queue_poll(PRIORITY_QUEUE *q)
 	{
 		q->preparing = 1;
 	}
-	pthread_cond_broadcast(&(q->msg_cond));
 	pthread_mutex_unlock(&(q->data_mutex));
+	pthread_cond_broadcast(&(q->msg_cond));
 	return item;
 }
 
@@ -200,8 +202,9 @@ FRAME_DATA * priority_queue_poll_by_type(PRIORITY_QUEUE *q, FRAME_AV_TYPE av_typ
 	{
 		q->preparing = 1;
 	}
-	pthread_cond_broadcast(&(q->msg_cond));
 	pthread_mutex_unlock(&(q->data_mutex));
+	pthread_cond_broadcast(&(q->msg_cond));
+	printf("poll %p \n", item);
 	return item;
 }
 

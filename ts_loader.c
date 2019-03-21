@@ -137,7 +137,7 @@ void ts_loader_range_load(TS_LOADER * l)
 
 	int rs = fread(pkt, 188 * PKT_NUM_PER_TIME, 1, tsFile);
 	int len = 188 * PKT_NUM_PER_TIME;
-	if (len == 0)
+	if (rs == 0)
 	{
 		printf("len=0.is_finish = 1\n");
 		l->is_finish = 1;

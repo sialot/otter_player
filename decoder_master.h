@@ -1,14 +1,18 @@
 #pragma once
 #include <stdio.h>
 #include <stdlib.h>
+#include <libavcodec/avcodec.h>
 #include "priority_queue.h"
 
 // ½âÂëÆ÷¶¨Òå
 typedef struct DECODER
 {
 	int(*decode_frame)(void *, FRAME_DATA *, PRIORITY_QUEUE *);
-
-	// TODO
+	AVCodec *codec;
+	AVCodecContext *context;
+	AVCodecParserContext *parser;
+	AVPacket *pkt;
+	AVFrame *decoded_frame;
 } DECODER;
 
 #include "aac_decoder.h"

@@ -143,6 +143,7 @@ int fileRead(char *filePath) {
 	} while (rs != 0);
 	decoder_master_destroy(m);
 	ts_demuxer_destroy(d);
+	free(pkt);
 
 	if (fclose(tsFile))
 	{

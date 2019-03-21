@@ -3,17 +3,18 @@
 #
 cmake_minimum_required (VERSION 3.8)
 
-project ("otter_player") 
+project ("otter_player")
  
-# 指定源文件
-aux_source_directory(. DIR_SRCS)
-aux_source_directory(sys SYS_SRCS)
+include_directories("include")
+link_directories(${PROJECT_SOURCE_DIR}/lib)
 
-include_directories(include)
-link_directories(lib)
+# 指定源文件
+aux_source_directory(. DIR_SRCS) 
 
 # 指定生成目标
 add_executable(test ${DIR_SRCS}  ${SYS_SRCS})
+
+target_link_libraries(test "avcodec.lib" "avformat.lib" "avutil.lib" "swscale.lib")
 
 # TODO: 如有需要，请添加测试并安装目标。
  

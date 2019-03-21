@@ -1128,11 +1128,11 @@ function updateGlobalBufferViews() {
 if (!ENVIRONMENT_IS_PTHREAD) { // Pthreads have already initialized these variables in src/worker.js, where they were passed to the thread worker at startup time
 
 var STATIC_BASE = 1024,
-    STACK_BASE = 9504,
+    STACK_BASE = 1083104,
     STACKTOP = STACK_BASE,
-    STACK_MAX = 5252384,
-    DYNAMIC_BASE = 5252384,
-    DYNAMICTOP_PTR = 8448;
+    STACK_MAX = 6325984,
+    DYNAMIC_BASE = 6325984,
+    DYNAMICTOP_PTR = 1082048;
 
 assert(STACK_BASE % 16 === 0, 'stack must start aligned');
 assert(DYNAMIC_BASE % 16 === 0, 'heap must start aligned');
@@ -1252,14 +1252,15 @@ function ensureInitRuntime() {
   // Pass the thread address inside the asm.js scope to store it for fast access that avoids the need for a FFI out.
   __register_pthread_ptr(PThread.mainThreadBlock, /*isMainBrowserThread=*/!ENVIRONMENT_IS_WORKER, /*isMainRuntimeThread=*/1);
   _emscripten_register_main_browser_thread_id(PThread.mainThreadBlock);
-  
+  if (!Module["noFSInit"] && !FS.init.initialized) FS.init();
+TTY.init();
   callRuntimeCallbacks(__ATINIT__);
 }
 
 function preMain() {
   checkStackCookie();
   if (ENVIRONMENT_IS_PTHREAD) return; // PThreads reuse the runtime from the main thread.
-  
+  FS.ignorePermissions = false;
   callRuntimeCallbacks(__ATMAIN__);
 }
 
@@ -1442,26 +1443,8 @@ var memoryInitializer = null;
 
 
 // To work around https://bugzilla.mozilla.org/show_bug.cgi?id=1049079, warm up a worker pool before starting up the application.
-if (!ENVIRONMENT_IS_PTHREAD) addOnPreRun(function() { if (typeof SharedArrayBuffer !== 'undefined') { addRunDependency('pthreads'); PThread.allocateUnusedWorkers(5, function() { removeRunDependency('pthreads'); }); }});
+if (!ENVIRONMENT_IS_PTHREAD) addOnPreRun(function() { if (typeof SharedArrayBuffer !== 'undefined') { addRunDependency('pthreads'); PThread.allocateUnusedWorkers(7, function() { removeRunDependency('pthreads'); }); }});
 
-var /* show errors on likely calls to FS when it was not included */ FS = {
-  error: function() {
-    abort('Filesystem support (FS) was not included. The problem is that you are using files from JS, but files were not used from C/C++, so filesystem support was not auto-included. You can force-include filesystem support with  -s FORCE_FILESYSTEM=1');
-  },
-  init: function() { FS.error() },
-  createDataFile: function() { FS.error() },
-  createPreloadedFile: function() { FS.error() },
-  createLazyFile: function() { FS.error() },
-  open: function() { FS.error() },
-  mkdev: function() { FS.error() },
-  registerDevice: function() { FS.error() },
-  analyzePath: function() { FS.error() },
-  loadFilesFromDB: function() { FS.error() },
-
-  ErrnoError: function ErrnoError() { FS.error() },
-};
-Module['FS_createDataFile'] = FS.createDataFile;
-Module['FS_createPreloadedFile'] = FS.createPreloadedFile;
 
 
 
@@ -1612,8 +1595,8 @@ Module['asm'] = function(global, env, providedBuffer) {
   ;
   // import table
   env['table'] = wasmTable = new WebAssembly.Table({
-    'initial': 62,
-    'maximum': 62,
+    'initial': 39857,
+    'maximum': 39857,
     'element': 'anyfunc'
   });
   env['__memory_base'] = 1024; // tell the memory segments where to place themselves
@@ -1643,8 +1626,8 @@ function _emscripten_asm_const_ii(code, a0) {
 
 
 
-// STATICTOP = STATIC_BASE + 8480;
-/* global initializers */ if (!ENVIRONMENT_IS_PTHREAD) __ATINIT__.push({ func: function() { ___emscripten_pthread_data_constructor() } });
+// STATICTOP = STATIC_BASE + 1082080;
+/* global initializers */ if (!ENVIRONMENT_IS_PTHREAD) __ATINIT__.push({ func: function() { globalCtors() } });
 
 
 if (!ENVIRONMENT_IS_PTHREAD) {
@@ -1657,7 +1640,7 @@ memoryInitializer = "player.js.mem";
 
 /* no memory initializer */
 var tempDoublePtr;
-if (!ENVIRONMENT_IS_PTHREAD) tempDoublePtr = 9488;
+if (!ENVIRONMENT_IS_PTHREAD) tempDoublePtr = 1083088;
 assert(tempDoublePtr % 8 == 0);
 
 function copyTempFloat(ptr) { // functions, because inlining this code increases code size too much
@@ -1686,6 +1669,59 @@ function copyTempDouble(ptr) {
     }
 
   
+  var ENV={};function ___buildEnvironment(environ) {
+      // WARNING: Arbitrary limit!
+      var MAX_ENV_VALUES = 64;
+      var TOTAL_ENV_SIZE = 1024;
+  
+      // Statically allocate memory for the environment.
+      var poolPtr;
+      var envPtr;
+      if (!___buildEnvironment.called) {
+        ___buildEnvironment.called = true;
+        // Set default values. Use string keys for Closure Compiler compatibility.
+        ENV['USER'] = ENV['LOGNAME'] = 'web_user';
+        ENV['PATH'] = '/';
+        ENV['PWD'] = '/';
+        ENV['HOME'] = '/home/web_user';
+        ENV['LANG'] = 'C.UTF-8';
+        ENV['_'] = Module['thisProgram'];
+        // Allocate memory.
+        poolPtr = getMemory(TOTAL_ENV_SIZE);
+        envPtr = getMemory(MAX_ENV_VALUES * 4);
+        HEAP32[((envPtr)>>2)]=poolPtr;
+        HEAP32[((environ)>>2)]=envPtr;
+      } else {
+        envPtr = HEAP32[((environ)>>2)];
+        poolPtr = HEAP32[((envPtr)>>2)];
+      }
+  
+      // Collect key=value lines.
+      var strings = [];
+      var totalSize = 0;
+      for (var key in ENV) {
+        if (typeof ENV[key] === 'string') {
+          var line = key + '=' + ENV[key];
+          strings.push(line);
+          totalSize += line.length;
+        }
+      }
+      if (totalSize > TOTAL_ENV_SIZE) {
+        throw new Error('Environment size exceeded TOTAL_ENV_SIZE!');
+      }
+  
+      // Make new.
+      var ptrSize = 4;
+      for (var i = 0; i < strings.length; i++) {
+        var line = strings[i];
+        writeAsciiToMemory(line, poolPtr);
+        HEAP32[(((envPtr)+(i * ptrSize))>>2)]=poolPtr;
+        poolPtr += line.length + 1;
+      }
+      HEAP32[(((envPtr)+(strings.length * ptrSize))>>2)]=0;
+    }
+
+  
   
   var PROCINFO={ppid:1,pid:42,sid:42,pgid:42};
   
@@ -1696,7 +1732,7 @@ function copyTempDouble(ptr) {
   
   var __pthread_is_main_browser_thread=0; var PThread={MAIN_THREAD_ID:1,mainThreadInfo:{schedPolicy:0,schedPrio:0},unusedWorkerPool:[],runningWorkers:[],initMainThreadBlock:function () {
         if (ENVIRONMENT_IS_PTHREAD) return undefined;
-        PThread.mainThreadBlock = 8688;
+        PThread.mainThreadBlock = 1082288;
   
         for (var i = 0; i < 244/4; ++i) HEAPU32[PThread.mainThreadBlock/4+i] = 0;
   
@@ -1709,7 +1745,7 @@ function copyTempDouble(ptr) {
         HEAP32[((headPtr)>>2)]=headPtr;
   
         // Allocate memory for thread-local storage.
-        var tlsMemory = 8944;
+        var tlsMemory = 1082544;
         for (var i = 0; i < 128; ++i) HEAPU32[tlsMemory/4+i] = 0;
         Atomics.store(HEAPU32, (PThread.mainThreadBlock + 116 ) >> 2, tlsMemory); // Init thread-local-storage memory array.
         Atomics.store(HEAPU32, (PThread.mainThreadBlock + 52 ) >> 2, PThread.mainThreadBlock); // Main thread ID.
@@ -1961,15 +1997,3066 @@ function copyTempDouble(ptr) {
   function ___lock() {}
 
   
-  var SYSCALLS={buffers:[null,[],[]],printChar:function (stream, curr) {
-        var buffer = SYSCALLS.buffers[stream];
-        assert(buffer);
-        if (curr === 0 || curr === 10) {
-          (stream === 1 ? out : err)(UTF8ArrayToString(buffer, 0));
-          buffer.length = 0;
-        } else {
-          buffer.push(curr);
+  
+  
+  var PATH={splitPath:function (filename) {
+        var splitPathRe = /^(\/?|)([\s\S]*?)((?:\.{1,2}|[^\/]+?|)(\.[^.\/]*|))(?:[\/]*)$/;
+        return splitPathRe.exec(filename).slice(1);
+      },normalizeArray:function (parts, allowAboveRoot) {
+        // if the path tries to go above the root, `up` ends up > 0
+        var up = 0;
+        for (var i = parts.length - 1; i >= 0; i--) {
+          var last = parts[i];
+          if (last === '.') {
+            parts.splice(i, 1);
+          } else if (last === '..') {
+            parts.splice(i, 1);
+            up++;
+          } else if (up) {
+            parts.splice(i, 1);
+            up--;
+          }
         }
+        // if the path is allowed to go above the root, restore leading ..s
+        if (allowAboveRoot) {
+          for (; up; up--) {
+            parts.unshift('..');
+          }
+        }
+        return parts;
+      },normalize:function (path) {
+        var isAbsolute = path.charAt(0) === '/',
+            trailingSlash = path.substr(-1) === '/';
+        // Normalize the path
+        path = PATH.normalizeArray(path.split('/').filter(function(p) {
+          return !!p;
+        }), !isAbsolute).join('/');
+        if (!path && !isAbsolute) {
+          path = '.';
+        }
+        if (path && trailingSlash) {
+          path += '/';
+        }
+        return (isAbsolute ? '/' : '') + path;
+      },dirname:function (path) {
+        var result = PATH.splitPath(path),
+            root = result[0],
+            dir = result[1];
+        if (!root && !dir) {
+          // No dirname whatsoever
+          return '.';
+        }
+        if (dir) {
+          // It has a dirname, strip trailing slash
+          dir = dir.substr(0, dir.length - 1);
+        }
+        return root + dir;
+      },basename:function (path) {
+        // EMSCRIPTEN return '/'' for '/', not an empty string
+        if (path === '/') return '/';
+        var lastSlash = path.lastIndexOf('/');
+        if (lastSlash === -1) return path;
+        return path.substr(lastSlash+1);
+      },extname:function (path) {
+        return PATH.splitPath(path)[3];
+      },join:function () {
+        var paths = Array.prototype.slice.call(arguments, 0);
+        return PATH.normalize(paths.join('/'));
+      },join2:function (l, r) {
+        return PATH.normalize(l + '/' + r);
+      },resolve:function () {
+        var resolvedPath = '',
+          resolvedAbsolute = false;
+        for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
+          var path = (i >= 0) ? arguments[i] : FS.cwd();
+          // Skip empty and invalid entries
+          if (typeof path !== 'string') {
+            throw new TypeError('Arguments to path.resolve must be strings');
+          } else if (!path) {
+            return ''; // an invalid portion invalidates the whole thing
+          }
+          resolvedPath = path + '/' + resolvedPath;
+          resolvedAbsolute = path.charAt(0) === '/';
+        }
+        // At this point the path should be resolved to a full absolute path, but
+        // handle relative paths to be safe (might happen when process.cwd() fails)
+        resolvedPath = PATH.normalizeArray(resolvedPath.split('/').filter(function(p) {
+          return !!p;
+        }), !resolvedAbsolute).join('/');
+        return ((resolvedAbsolute ? '/' : '') + resolvedPath) || '.';
+      },relative:function (from, to) {
+        from = PATH.resolve(from).substr(1);
+        to = PATH.resolve(to).substr(1);
+        function trim(arr) {
+          var start = 0;
+          for (; start < arr.length; start++) {
+            if (arr[start] !== '') break;
+          }
+          var end = arr.length - 1;
+          for (; end >= 0; end--) {
+            if (arr[end] !== '') break;
+          }
+          if (start > end) return [];
+          return arr.slice(start, end - start + 1);
+        }
+        var fromParts = trim(from.split('/'));
+        var toParts = trim(to.split('/'));
+        var length = Math.min(fromParts.length, toParts.length);
+        var samePartsLength = length;
+        for (var i = 0; i < length; i++) {
+          if (fromParts[i] !== toParts[i]) {
+            samePartsLength = i;
+            break;
+          }
+        }
+        var outputParts = [];
+        for (var i = samePartsLength; i < fromParts.length; i++) {
+          outputParts.push('..');
+        }
+        outputParts = outputParts.concat(toParts.slice(samePartsLength));
+        return outputParts.join('/');
+      }};
+  
+  var TTY={ttys:[],init:function () {
+        // https://github.com/emscripten-core/emscripten/pull/1555
+        // if (ENVIRONMENT_IS_NODE) {
+        //   // currently, FS.init does not distinguish if process.stdin is a file or TTY
+        //   // device, it always assumes it's a TTY device. because of this, we're forcing
+        //   // process.stdin to UTF8 encoding to at least make stdin reading compatible
+        //   // with text files until FS.init can be refactored.
+        //   process['stdin']['setEncoding']('utf8');
+        // }
+      },shutdown:function () {
+        // https://github.com/emscripten-core/emscripten/pull/1555
+        // if (ENVIRONMENT_IS_NODE) {
+        //   // inolen: any idea as to why node -e 'process.stdin.read()' wouldn't exit immediately (with process.stdin being a tty)?
+        //   // isaacs: because now it's reading from the stream, you've expressed interest in it, so that read() kicks off a _read() which creates a ReadReq operation
+        //   // inolen: I thought read() in that case was a synchronous operation that just grabbed some amount of buffered data if it exists?
+        //   // isaacs: it is. but it also triggers a _read() call, which calls readStart() on the handle
+        //   // isaacs: do process.stdin.pause() and i'd think it'd probably close the pending call
+        //   process['stdin']['pause']();
+        // }
+      },register:function (dev, ops) {
+        TTY.ttys[dev] = { input: [], output: [], ops: ops };
+        FS.registerDevice(dev, TTY.stream_ops);
+      },stream_ops:{open:function (stream) {
+          var tty = TTY.ttys[stream.node.rdev];
+          if (!tty) {
+            throw new FS.ErrnoError(ERRNO_CODES.ENODEV);
+          }
+          stream.tty = tty;
+          stream.seekable = false;
+        },close:function (stream) {
+          // flush any pending line data
+          stream.tty.ops.flush(stream.tty);
+        },flush:function (stream) {
+          stream.tty.ops.flush(stream.tty);
+        },read:function (stream, buffer, offset, length, pos /* ignored */) {
+          if (!stream.tty || !stream.tty.ops.get_char) {
+            throw new FS.ErrnoError(ERRNO_CODES.ENXIO);
+          }
+          var bytesRead = 0;
+          for (var i = 0; i < length; i++) {
+            var result;
+            try {
+              result = stream.tty.ops.get_char(stream.tty);
+            } catch (e) {
+              throw new FS.ErrnoError(ERRNO_CODES.EIO);
+            }
+            if (result === undefined && bytesRead === 0) {
+              throw new FS.ErrnoError(ERRNO_CODES.EAGAIN);
+            }
+            if (result === null || result === undefined) break;
+            bytesRead++;
+            buffer[offset+i] = result;
+          }
+          if (bytesRead) {
+            stream.node.timestamp = Date.now();
+          }
+          return bytesRead;
+        },write:function (stream, buffer, offset, length, pos) {
+          if (!stream.tty || !stream.tty.ops.put_char) {
+            throw new FS.ErrnoError(ERRNO_CODES.ENXIO);
+          }
+          try {
+            for (var i = 0; i < length; i++) {
+              stream.tty.ops.put_char(stream.tty, buffer[offset+i]);
+            }
+          } catch (e) {
+            throw new FS.ErrnoError(ERRNO_CODES.EIO);
+          }
+          if (length) {
+            stream.node.timestamp = Date.now();
+          }
+          return i;
+        }},default_tty_ops:{get_char:function (tty) {
+          if (!tty.input.length) {
+            var result = null;
+            if (ENVIRONMENT_IS_NODE) {
+              // we will read data by chunks of BUFSIZE
+              var BUFSIZE = 256;
+              var buf = new Buffer(BUFSIZE);
+              var bytesRead = 0;
+  
+              var isPosixPlatform = (process.platform != 'win32'); // Node doesn't offer a direct check, so test by exclusion
+  
+              var fd = process.stdin.fd;
+              if (isPosixPlatform) {
+                // Linux and Mac cannot use process.stdin.fd (which isn't set up as sync)
+                var usingDevice = false;
+                try {
+                  fd = fs.openSync('/dev/stdin', 'r');
+                  usingDevice = true;
+                } catch (e) {}
+              }
+  
+              try {
+                bytesRead = fs.readSync(fd, buf, 0, BUFSIZE, null);
+              } catch(e) {
+                // Cross-platform differences: on Windows, reading EOF throws an exception, but on other OSes,
+                // reading EOF returns 0. Uniformize behavior by treating the EOF exception to return 0.
+                if (e.toString().indexOf('EOF') != -1) bytesRead = 0;
+                else throw e;
+              }
+  
+              if (usingDevice) { fs.closeSync(fd); }
+              if (bytesRead > 0) {
+                result = buf.slice(0, bytesRead).toString('utf-8');
+              } else {
+                result = null;
+              }
+            } else
+            if (typeof window != 'undefined' &&
+              typeof window.prompt == 'function') {
+              // Browser.
+              result = window.prompt('Input: ');  // returns null on cancel
+              if (result !== null) {
+                result += '\n';
+              }
+            } else if (typeof readline == 'function') {
+              // Command line.
+              result = readline();
+              if (result !== null) {
+                result += '\n';
+              }
+            }
+            if (!result) {
+              return null;
+            }
+            tty.input = intArrayFromString(result, true);
+          }
+          return tty.input.shift();
+        },put_char:function (tty, val) {
+          if (val === null || val === 10) {
+            out(UTF8ArrayToString(tty.output, 0));
+            tty.output = [];
+          } else {
+            if (val != 0) tty.output.push(val); // val == 0 would cut text output off in the middle.
+          }
+        },flush:function (tty) {
+          if (tty.output && tty.output.length > 0) {
+            out(UTF8ArrayToString(tty.output, 0));
+            tty.output = [];
+          }
+        }},default_tty1_ops:{put_char:function (tty, val) {
+          if (val === null || val === 10) {
+            err(UTF8ArrayToString(tty.output, 0));
+            tty.output = [];
+          } else {
+            if (val != 0) tty.output.push(val);
+          }
+        },flush:function (tty) {
+          if (tty.output && tty.output.length > 0) {
+            err(UTF8ArrayToString(tty.output, 0));
+            tty.output = [];
+          }
+        }}};
+  
+  var MEMFS={ops_table:null,mount:function (mount) {
+        return MEMFS.createNode(null, '/', 16384 | 511 /* 0777 */, 0);
+      },createNode:function (parent, name, mode, dev) {
+        if (FS.isBlkdev(mode) || FS.isFIFO(mode)) {
+          // no supported
+          throw new FS.ErrnoError(ERRNO_CODES.EPERM);
+        }
+        if (!MEMFS.ops_table) {
+          MEMFS.ops_table = {
+            dir: {
+              node: {
+                getattr: MEMFS.node_ops.getattr,
+                setattr: MEMFS.node_ops.setattr,
+                lookup: MEMFS.node_ops.lookup,
+                mknod: MEMFS.node_ops.mknod,
+                rename: MEMFS.node_ops.rename,
+                unlink: MEMFS.node_ops.unlink,
+                rmdir: MEMFS.node_ops.rmdir,
+                readdir: MEMFS.node_ops.readdir,
+                symlink: MEMFS.node_ops.symlink
+              },
+              stream: {
+                llseek: MEMFS.stream_ops.llseek
+              }
+            },
+            file: {
+              node: {
+                getattr: MEMFS.node_ops.getattr,
+                setattr: MEMFS.node_ops.setattr
+              },
+              stream: {
+                llseek: MEMFS.stream_ops.llseek,
+                read: MEMFS.stream_ops.read,
+                write: MEMFS.stream_ops.write,
+                allocate: MEMFS.stream_ops.allocate,
+                mmap: MEMFS.stream_ops.mmap,
+                msync: MEMFS.stream_ops.msync
+              }
+            },
+            link: {
+              node: {
+                getattr: MEMFS.node_ops.getattr,
+                setattr: MEMFS.node_ops.setattr,
+                readlink: MEMFS.node_ops.readlink
+              },
+              stream: {}
+            },
+            chrdev: {
+              node: {
+                getattr: MEMFS.node_ops.getattr,
+                setattr: MEMFS.node_ops.setattr
+              },
+              stream: FS.chrdev_stream_ops
+            }
+          };
+        }
+        var node = FS.createNode(parent, name, mode, dev);
+        if (FS.isDir(node.mode)) {
+          node.node_ops = MEMFS.ops_table.dir.node;
+          node.stream_ops = MEMFS.ops_table.dir.stream;
+          node.contents = {};
+        } else if (FS.isFile(node.mode)) {
+          node.node_ops = MEMFS.ops_table.file.node;
+          node.stream_ops = MEMFS.ops_table.file.stream;
+          node.usedBytes = 0; // The actual number of bytes used in the typed array, as opposed to contents.length which gives the whole capacity.
+          // When the byte data of the file is populated, this will point to either a typed array, or a normal JS array. Typed arrays are preferred
+          // for performance, and used by default. However, typed arrays are not resizable like normal JS arrays are, so there is a small disk size
+          // penalty involved for appending file writes that continuously grow a file similar to std::vector capacity vs used -scheme.
+          node.contents = null; 
+        } else if (FS.isLink(node.mode)) {
+          node.node_ops = MEMFS.ops_table.link.node;
+          node.stream_ops = MEMFS.ops_table.link.stream;
+        } else if (FS.isChrdev(node.mode)) {
+          node.node_ops = MEMFS.ops_table.chrdev.node;
+          node.stream_ops = MEMFS.ops_table.chrdev.stream;
+        }
+        node.timestamp = Date.now();
+        // add the new node to the parent
+        if (parent) {
+          parent.contents[name] = node;
+        }
+        return node;
+      },getFileDataAsRegularArray:function (node) {
+        if (node.contents && node.contents.subarray) {
+          var arr = [];
+          for (var i = 0; i < node.usedBytes; ++i) arr.push(node.contents[i]);
+          return arr; // Returns a copy of the original data.
+        }
+        return node.contents; // No-op, the file contents are already in a JS array. Return as-is.
+      },getFileDataAsTypedArray:function (node) {
+        if (!node.contents) return new Uint8Array;
+        if (node.contents.subarray) return node.contents.subarray(0, node.usedBytes); // Make sure to not return excess unused bytes.
+        return new Uint8Array(node.contents);
+      },expandFileStorage:function (node, newCapacity) {
+        var prevCapacity = node.contents ? node.contents.length : 0;
+        if (prevCapacity >= newCapacity) return; // No need to expand, the storage was already large enough.
+        // Don't expand strictly to the given requested limit if it's only a very small increase, but instead geometrically grow capacity.
+        // For small filesizes (<1MB), perform size*2 geometric increase, but for large sizes, do a much more conservative size*1.125 increase to
+        // avoid overshooting the allocation cap by a very large margin.
+        var CAPACITY_DOUBLING_MAX = 1024 * 1024;
+        newCapacity = Math.max(newCapacity, (prevCapacity * (prevCapacity < CAPACITY_DOUBLING_MAX ? 2.0 : 1.125)) | 0);
+        if (prevCapacity != 0) newCapacity = Math.max(newCapacity, 256); // At minimum allocate 256b for each file when expanding.
+        var oldContents = node.contents;
+        node.contents = new Uint8Array(newCapacity); // Allocate new storage.
+        if (node.usedBytes > 0) node.contents.set(oldContents.subarray(0, node.usedBytes), 0); // Copy old data over to the new storage.
+        return;
+      },resizeFileStorage:function (node, newSize) {
+        if (node.usedBytes == newSize) return;
+        if (newSize == 0) {
+          node.contents = null; // Fully decommit when requesting a resize to zero.
+          node.usedBytes = 0;
+          return;
+        }
+        if (!node.contents || node.contents.subarray) { // Resize a typed array if that is being used as the backing store.
+          var oldContents = node.contents;
+          node.contents = new Uint8Array(new ArrayBuffer(newSize)); // Allocate new storage.
+          if (oldContents) {
+            node.contents.set(oldContents.subarray(0, Math.min(newSize, node.usedBytes))); // Copy old data over to the new storage.
+          }
+          node.usedBytes = newSize;
+          return;
+        }
+        // Backing with a JS array.
+        if (!node.contents) node.contents = [];
+        if (node.contents.length > newSize) node.contents.length = newSize;
+        else while (node.contents.length < newSize) node.contents.push(0);
+        node.usedBytes = newSize;
+      },node_ops:{getattr:function (node) {
+          var attr = {};
+          // device numbers reuse inode numbers.
+          attr.dev = FS.isChrdev(node.mode) ? node.id : 1;
+          attr.ino = node.id;
+          attr.mode = node.mode;
+          attr.nlink = 1;
+          attr.uid = 0;
+          attr.gid = 0;
+          attr.rdev = node.rdev;
+          if (FS.isDir(node.mode)) {
+            attr.size = 4096;
+          } else if (FS.isFile(node.mode)) {
+            attr.size = node.usedBytes;
+          } else if (FS.isLink(node.mode)) {
+            attr.size = node.link.length;
+          } else {
+            attr.size = 0;
+          }
+          attr.atime = new Date(node.timestamp);
+          attr.mtime = new Date(node.timestamp);
+          attr.ctime = new Date(node.timestamp);
+          // NOTE: In our implementation, st_blocks = Math.ceil(st_size/st_blksize),
+          //       but this is not required by the standard.
+          attr.blksize = 4096;
+          attr.blocks = Math.ceil(attr.size / attr.blksize);
+          return attr;
+        },setattr:function (node, attr) {
+          if (attr.mode !== undefined) {
+            node.mode = attr.mode;
+          }
+          if (attr.timestamp !== undefined) {
+            node.timestamp = attr.timestamp;
+          }
+          if (attr.size !== undefined) {
+            MEMFS.resizeFileStorage(node, attr.size);
+          }
+        },lookup:function (parent, name) {
+          throw FS.genericErrors[ERRNO_CODES.ENOENT];
+        },mknod:function (parent, name, mode, dev) {
+          return MEMFS.createNode(parent, name, mode, dev);
+        },rename:function (old_node, new_dir, new_name) {
+          // if we're overwriting a directory at new_name, make sure it's empty.
+          if (FS.isDir(old_node.mode)) {
+            var new_node;
+            try {
+              new_node = FS.lookupNode(new_dir, new_name);
+            } catch (e) {
+            }
+            if (new_node) {
+              for (var i in new_node.contents) {
+                throw new FS.ErrnoError(ERRNO_CODES.ENOTEMPTY);
+              }
+            }
+          }
+          // do the internal rewiring
+          delete old_node.parent.contents[old_node.name];
+          old_node.name = new_name;
+          new_dir.contents[new_name] = old_node;
+          old_node.parent = new_dir;
+        },unlink:function (parent, name) {
+          delete parent.contents[name];
+        },rmdir:function (parent, name) {
+          var node = FS.lookupNode(parent, name);
+          for (var i in node.contents) {
+            throw new FS.ErrnoError(ERRNO_CODES.ENOTEMPTY);
+          }
+          delete parent.contents[name];
+        },readdir:function (node) {
+          var entries = ['.', '..']
+          for (var key in node.contents) {
+            if (!node.contents.hasOwnProperty(key)) {
+              continue;
+            }
+            entries.push(key);
+          }
+          return entries;
+        },symlink:function (parent, newname, oldpath) {
+          var node = MEMFS.createNode(parent, newname, 511 /* 0777 */ | 40960, 0);
+          node.link = oldpath;
+          return node;
+        },readlink:function (node) {
+          if (!FS.isLink(node.mode)) {
+            throw new FS.ErrnoError(ERRNO_CODES.EINVAL);
+          }
+          return node.link;
+        }},stream_ops:{read:function (stream, buffer, offset, length, position) {
+          var contents = stream.node.contents;
+          if (position >= stream.node.usedBytes) return 0;
+          var size = Math.min(stream.node.usedBytes - position, length);
+          assert(size >= 0);
+          if (size > 8 && contents.subarray) { // non-trivial, and typed array
+            buffer.set(contents.subarray(position, position + size), offset);
+          } else {
+            for (var i = 0; i < size; i++) buffer[offset + i] = contents[position + i];
+          }
+          return size;
+        },write:function (stream, buffer, offset, length, position, canOwn) {
+  
+          if (!length) return 0;
+          var node = stream.node;
+          node.timestamp = Date.now();
+  
+          if (buffer.subarray && (!node.contents || node.contents.subarray)) { // This write is from a typed array to a typed array?
+            if (canOwn) {
+              assert(position === 0, 'canOwn must imply no weird position inside the file');
+              node.contents = buffer.subarray(offset, offset + length);
+              node.usedBytes = length;
+              return length;
+            } else if (node.usedBytes === 0 && position === 0) { // If this is a simple first write to an empty file, do a fast set since we don't need to care about old data.
+              node.contents = new Uint8Array(buffer.subarray(offset, offset + length));
+              node.usedBytes = length;
+              return length;
+            } else if (position + length <= node.usedBytes) { // Writing to an already allocated and used subrange of the file?
+              node.contents.set(buffer.subarray(offset, offset + length), position);
+              return length;
+            }
+          }
+  
+          // Appending to an existing file and we need to reallocate, or source data did not come as a typed array.
+          MEMFS.expandFileStorage(node, position+length);
+          if (node.contents.subarray && buffer.subarray) node.contents.set(buffer.subarray(offset, offset + length), position); // Use typed array write if available.
+          else {
+            for (var i = 0; i < length; i++) {
+             node.contents[position + i] = buffer[offset + i]; // Or fall back to manual write if not.
+            }
+          }
+          node.usedBytes = Math.max(node.usedBytes, position+length);
+          return length;
+        },llseek:function (stream, offset, whence) {
+          var position = offset;
+          if (whence === 1) {  // SEEK_CUR.
+            position += stream.position;
+          } else if (whence === 2) {  // SEEK_END.
+            if (FS.isFile(stream.node.mode)) {
+              position += stream.node.usedBytes;
+            }
+          }
+          if (position < 0) {
+            throw new FS.ErrnoError(ERRNO_CODES.EINVAL);
+          }
+          return position;
+        },allocate:function (stream, offset, length) {
+          MEMFS.expandFileStorage(stream.node, offset + length);
+          stream.node.usedBytes = Math.max(stream.node.usedBytes, offset + length);
+        },mmap:function (stream, buffer, offset, length, position, prot, flags) {
+          if (!FS.isFile(stream.node.mode)) {
+            throw new FS.ErrnoError(ERRNO_CODES.ENODEV);
+          }
+          var ptr;
+          var allocated;
+          var contents = stream.node.contents;
+          // Only make a new copy when MAP_PRIVATE is specified.
+          if ( !(flags & 2) &&
+                (contents.buffer === buffer || contents.buffer === buffer.buffer) ) {
+            // We can't emulate MAP_SHARED when the file is not backed by the buffer
+            // we're mapping to (e.g. the HEAP buffer).
+            allocated = false;
+            ptr = contents.byteOffset;
+          } else {
+            // Try to avoid unnecessary slices.
+            if (position > 0 || position + length < stream.node.usedBytes) {
+              if (contents.subarray) {
+                contents = contents.subarray(position, position + length);
+              } else {
+                contents = Array.prototype.slice.call(contents, position, position + length);
+              }
+            }
+            allocated = true;
+            ptr = _malloc(length);
+            if (!ptr) {
+              throw new FS.ErrnoError(ERRNO_CODES.ENOMEM);
+            }
+            buffer.set(contents, ptr);
+          }
+          return { ptr: ptr, allocated: allocated };
+        },msync:function (stream, buffer, offset, length, mmapFlags) {
+          if (!FS.isFile(stream.node.mode)) {
+            throw new FS.ErrnoError(ERRNO_CODES.ENODEV);
+          }
+          if (mmapFlags & 2) {
+            // MAP_PRIVATE calls need not to be synced back to underlying fs
+            return 0;
+          }
+  
+          var bytesWritten = MEMFS.stream_ops.write(stream, buffer, 0, length, offset, false);
+          // should we check if bytesWritten and length are the same?
+          return 0;
+        }}};
+  
+  var IDBFS={dbs:{},indexedDB:function () {
+        if (typeof indexedDB !== 'undefined') return indexedDB;
+        var ret = null;
+        if (typeof window === 'object') ret = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
+        assert(ret, 'IDBFS used, but indexedDB not supported');
+        return ret;
+      },DB_VERSION:21,DB_STORE_NAME:"FILE_DATA",mount:function (mount) {
+        // reuse all of the core MEMFS functionality
+        return MEMFS.mount.apply(null, arguments);
+      },syncfs:function (mount, populate, callback) {
+        IDBFS.getLocalSet(mount, function(err, local) {
+          if (err) return callback(err);
+  
+          IDBFS.getRemoteSet(mount, function(err, remote) {
+            if (err) return callback(err);
+  
+            var src = populate ? remote : local;
+            var dst = populate ? local : remote;
+  
+            IDBFS.reconcile(src, dst, callback);
+          });
+        });
+      },getDB:function (name, callback) {
+        // check the cache first
+        var db = IDBFS.dbs[name];
+        if (db) {
+          return callback(null, db);
+        }
+  
+        var req;
+        try {
+          req = IDBFS.indexedDB().open(name, IDBFS.DB_VERSION);
+        } catch (e) {
+          return callback(e);
+        }
+        if (!req) {
+          return callback("Unable to connect to IndexedDB");
+        }
+        req.onupgradeneeded = function(e) {
+          var db = e.target.result;
+          var transaction = e.target.transaction;
+  
+          var fileStore;
+  
+          if (db.objectStoreNames.contains(IDBFS.DB_STORE_NAME)) {
+            fileStore = transaction.objectStore(IDBFS.DB_STORE_NAME);
+          } else {
+            fileStore = db.createObjectStore(IDBFS.DB_STORE_NAME);
+          }
+  
+          if (!fileStore.indexNames.contains('timestamp')) {
+            fileStore.createIndex('timestamp', 'timestamp', { unique: false });
+          }
+        };
+        req.onsuccess = function() {
+          db = req.result;
+  
+          // add to the cache
+          IDBFS.dbs[name] = db;
+          callback(null, db);
+        };
+        req.onerror = function(e) {
+          callback(this.error);
+          e.preventDefault();
+        };
+      },getLocalSet:function (mount, callback) {
+        var entries = {};
+  
+        function isRealDir(p) {
+          return p !== '.' && p !== '..';
+        };
+        function toAbsolute(root) {
+          return function(p) {
+            return PATH.join2(root, p);
+          }
+        };
+  
+        var check = FS.readdir(mount.mountpoint).filter(isRealDir).map(toAbsolute(mount.mountpoint));
+  
+        while (check.length) {
+          var path = check.pop();
+          var stat;
+  
+          try {
+            stat = FS.stat(path);
+          } catch (e) {
+            return callback(e);
+          }
+  
+          if (FS.isDir(stat.mode)) {
+            check.push.apply(check, FS.readdir(path).filter(isRealDir).map(toAbsolute(path)));
+          }
+  
+          entries[path] = { timestamp: stat.mtime };
+        }
+  
+        return callback(null, { type: 'local', entries: entries });
+      },getRemoteSet:function (mount, callback) {
+        var entries = {};
+  
+        IDBFS.getDB(mount.mountpoint, function(err, db) {
+          if (err) return callback(err);
+  
+          try {
+            var transaction = db.transaction([IDBFS.DB_STORE_NAME], 'readonly');
+            transaction.onerror = function(e) {
+              callback(this.error);
+              e.preventDefault();
+            };
+  
+            var store = transaction.objectStore(IDBFS.DB_STORE_NAME);
+            var index = store.index('timestamp');
+  
+            index.openKeyCursor().onsuccess = function(event) {
+              var cursor = event.target.result;
+  
+              if (!cursor) {
+                return callback(null, { type: 'remote', db: db, entries: entries });
+              }
+  
+              entries[cursor.primaryKey] = { timestamp: cursor.key };
+  
+              cursor.continue();
+            };
+          } catch (e) {
+            return callback(e);
+          }
+        });
+      },loadLocalEntry:function (path, callback) {
+        var stat, node;
+  
+        try {
+          var lookup = FS.lookupPath(path);
+          node = lookup.node;
+          stat = FS.stat(path);
+        } catch (e) {
+          return callback(e);
+        }
+  
+        if (FS.isDir(stat.mode)) {
+          return callback(null, { timestamp: stat.mtime, mode: stat.mode });
+        } else if (FS.isFile(stat.mode)) {
+          // Performance consideration: storing a normal JavaScript array to a IndexedDB is much slower than storing a typed array.
+          // Therefore always convert the file contents to a typed array first before writing the data to IndexedDB.
+          node.contents = MEMFS.getFileDataAsTypedArray(node);
+          return callback(null, { timestamp: stat.mtime, mode: stat.mode, contents: node.contents });
+        } else {
+          return callback(new Error('node type not supported'));
+        }
+      },storeLocalEntry:function (path, entry, callback) {
+        try {
+          if (FS.isDir(entry.mode)) {
+            FS.mkdir(path, entry.mode);
+          } else if (FS.isFile(entry.mode)) {
+            FS.writeFile(path, entry.contents, { canOwn: true });
+          } else {
+            return callback(new Error('node type not supported'));
+          }
+  
+          FS.chmod(path, entry.mode);
+          FS.utime(path, entry.timestamp, entry.timestamp);
+        } catch (e) {
+          return callback(e);
+        }
+  
+        callback(null);
+      },removeLocalEntry:function (path, callback) {
+        try {
+          var lookup = FS.lookupPath(path);
+          var stat = FS.stat(path);
+  
+          if (FS.isDir(stat.mode)) {
+            FS.rmdir(path);
+          } else if (FS.isFile(stat.mode)) {
+            FS.unlink(path);
+          }
+        } catch (e) {
+          return callback(e);
+        }
+  
+        callback(null);
+      },loadRemoteEntry:function (store, path, callback) {
+        var req = store.get(path);
+        req.onsuccess = function(event) { callback(null, event.target.result); };
+        req.onerror = function(e) {
+          callback(this.error);
+          e.preventDefault();
+        };
+      },storeRemoteEntry:function (store, path, entry, callback) {
+        var req = store.put(entry, path);
+        req.onsuccess = function() { callback(null); };
+        req.onerror = function(e) {
+          callback(this.error);
+          e.preventDefault();
+        };
+      },removeRemoteEntry:function (store, path, callback) {
+        var req = store.delete(path);
+        req.onsuccess = function() { callback(null); };
+        req.onerror = function(e) {
+          callback(this.error);
+          e.preventDefault();
+        };
+      },reconcile:function (src, dst, callback) {
+        var total = 0;
+  
+        var create = [];
+        Object.keys(src.entries).forEach(function (key) {
+          var e = src.entries[key];
+          var e2 = dst.entries[key];
+          if (!e2 || e.timestamp > e2.timestamp) {
+            create.push(key);
+            total++;
+          }
+        });
+  
+        var remove = [];
+        Object.keys(dst.entries).forEach(function (key) {
+          var e = dst.entries[key];
+          var e2 = src.entries[key];
+          if (!e2) {
+            remove.push(key);
+            total++;
+          }
+        });
+  
+        if (!total) {
+          return callback(null);
+        }
+  
+        var errored = false;
+        var completed = 0;
+        var db = src.type === 'remote' ? src.db : dst.db;
+        var transaction = db.transaction([IDBFS.DB_STORE_NAME], 'readwrite');
+        var store = transaction.objectStore(IDBFS.DB_STORE_NAME);
+  
+        function done(err) {
+          if (err) {
+            if (!done.errored) {
+              done.errored = true;
+              return callback(err);
+            }
+            return;
+          }
+          if (++completed >= total) {
+            return callback(null);
+          }
+        };
+  
+        transaction.onerror = function(e) {
+          done(this.error);
+          e.preventDefault();
+        };
+  
+        // sort paths in ascending order so directory entries are created
+        // before the files inside them
+        create.sort().forEach(function (path) {
+          if (dst.type === 'local') {
+            IDBFS.loadRemoteEntry(store, path, function (err, entry) {
+              if (err) return done(err);
+              IDBFS.storeLocalEntry(path, entry, done);
+            });
+          } else {
+            IDBFS.loadLocalEntry(path, function (err, entry) {
+              if (err) return done(err);
+              IDBFS.storeRemoteEntry(store, path, entry, done);
+            });
+          }
+        });
+  
+        // sort paths in descending order so files are deleted before their
+        // parent directories
+        remove.sort().reverse().forEach(function(path) {
+          if (dst.type === 'local') {
+            IDBFS.removeLocalEntry(path, done);
+          } else {
+            IDBFS.removeRemoteEntry(store, path, done);
+          }
+        });
+      }};
+  
+  var NODEFS={isWindows:false,staticInit:function () {
+        NODEFS.isWindows = !!process.platform.match(/^win/);
+        var flags = process["binding"]("constants");
+        // Node.js 4 compatibility: it has no namespaces for constants
+        if (flags["fs"]) {
+          flags = flags["fs"];
+        }
+        NODEFS.flagsForNodeMap = {
+          "1024": flags["O_APPEND"],
+          "64": flags["O_CREAT"],
+          "128": flags["O_EXCL"],
+          "0": flags["O_RDONLY"],
+          "2": flags["O_RDWR"],
+          "4096": flags["O_SYNC"],
+          "512": flags["O_TRUNC"],
+          "1": flags["O_WRONLY"]
+        };
+      },bufferFrom:function (arrayBuffer) {
+        // Node.js < 4.5 compatibility: Buffer.from does not support ArrayBuffer
+        // Buffer.from before 4.5 was just a method inherited from Uint8Array
+        // Buffer.alloc has been added with Buffer.from together, so check it instead
+        return Buffer.alloc ? Buffer.from(arrayBuffer) : new Buffer(arrayBuffer);
+      },mount:function (mount) {
+        assert(ENVIRONMENT_IS_NODE);
+        return NODEFS.createNode(null, '/', NODEFS.getMode(mount.opts.root), 0);
+      },createNode:function (parent, name, mode, dev) {
+        if (!FS.isDir(mode) && !FS.isFile(mode) && !FS.isLink(mode)) {
+          throw new FS.ErrnoError(ERRNO_CODES.EINVAL);
+        }
+        var node = FS.createNode(parent, name, mode);
+        node.node_ops = NODEFS.node_ops;
+        node.stream_ops = NODEFS.stream_ops;
+        return node;
+      },getMode:function (path) {
+        var stat;
+        try {
+          stat = fs.lstatSync(path);
+          if (NODEFS.isWindows) {
+            // Node.js on Windows never represents permission bit 'x', so
+            // propagate read bits to execute bits
+            stat.mode = stat.mode | ((stat.mode & 292) >> 2);
+          }
+        } catch (e) {
+          if (!e.code) throw e;
+          throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+        }
+        return stat.mode;
+      },realPath:function (node) {
+        var parts = [];
+        while (node.parent !== node) {
+          parts.push(node.name);
+          node = node.parent;
+        }
+        parts.push(node.mount.opts.root);
+        parts.reverse();
+        return PATH.join.apply(null, parts);
+      },flagsForNode:function (flags) {
+        flags &= ~0x200000 /*O_PATH*/; // Ignore this flag from musl, otherwise node.js fails to open the file.
+        flags &= ~0x800 /*O_NONBLOCK*/; // Ignore this flag from musl, otherwise node.js fails to open the file.
+        flags &= ~0x8000 /*O_LARGEFILE*/; // Ignore this flag from musl, otherwise node.js fails to open the file.
+        flags &= ~0x80000 /*O_CLOEXEC*/; // Some applications may pass it; it makes no sense for a single process.
+        var newFlags = 0;
+        for (var k in NODEFS.flagsForNodeMap) {
+          if (flags & k) {
+            newFlags |= NODEFS.flagsForNodeMap[k];
+            flags ^= k;
+          }
+        }
+  
+        if (!flags) {
+          return newFlags;
+        } else {
+          throw new FS.ErrnoError(ERRNO_CODES.EINVAL);
+        }
+      },node_ops:{getattr:function (node) {
+          var path = NODEFS.realPath(node);
+          var stat;
+          try {
+            stat = fs.lstatSync(path);
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+          // node.js v0.10.20 doesn't report blksize and blocks on Windows. Fake them with default blksize of 4096.
+          // See http://support.microsoft.com/kb/140365
+          if (NODEFS.isWindows && !stat.blksize) {
+            stat.blksize = 4096;
+          }
+          if (NODEFS.isWindows && !stat.blocks) {
+            stat.blocks = (stat.size+stat.blksize-1)/stat.blksize|0;
+          }
+          return {
+            dev: stat.dev,
+            ino: stat.ino,
+            mode: stat.mode,
+            nlink: stat.nlink,
+            uid: stat.uid,
+            gid: stat.gid,
+            rdev: stat.rdev,
+            size: stat.size,
+            atime: stat.atime,
+            mtime: stat.mtime,
+            ctime: stat.ctime,
+            blksize: stat.blksize,
+            blocks: stat.blocks
+          };
+        },setattr:function (node, attr) {
+          var path = NODEFS.realPath(node);
+          try {
+            if (attr.mode !== undefined) {
+              fs.chmodSync(path, attr.mode);
+              // update the common node structure mode as well
+              node.mode = attr.mode;
+            }
+            if (attr.timestamp !== undefined) {
+              var date = new Date(attr.timestamp);
+              fs.utimesSync(path, date, date);
+            }
+            if (attr.size !== undefined) {
+              fs.truncateSync(path, attr.size);
+            }
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        },lookup:function (parent, name) {
+          var path = PATH.join2(NODEFS.realPath(parent), name);
+          var mode = NODEFS.getMode(path);
+          return NODEFS.createNode(parent, name, mode);
+        },mknod:function (parent, name, mode, dev) {
+          var node = NODEFS.createNode(parent, name, mode, dev);
+          // create the backing node for this in the fs root as well
+          var path = NODEFS.realPath(node);
+          try {
+            if (FS.isDir(node.mode)) {
+              fs.mkdirSync(path, node.mode);
+            } else {
+              fs.writeFileSync(path, '', { mode: node.mode });
+            }
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+          return node;
+        },rename:function (oldNode, newDir, newName) {
+          var oldPath = NODEFS.realPath(oldNode);
+          var newPath = PATH.join2(NODEFS.realPath(newDir), newName);
+          try {
+            fs.renameSync(oldPath, newPath);
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        },unlink:function (parent, name) {
+          var path = PATH.join2(NODEFS.realPath(parent), name);
+          try {
+            fs.unlinkSync(path);
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        },rmdir:function (parent, name) {
+          var path = PATH.join2(NODEFS.realPath(parent), name);
+          try {
+            fs.rmdirSync(path);
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        },readdir:function (node) {
+          var path = NODEFS.realPath(node);
+          try {
+            return fs.readdirSync(path);
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        },symlink:function (parent, newName, oldPath) {
+          var newPath = PATH.join2(NODEFS.realPath(parent), newName);
+          try {
+            fs.symlinkSync(oldPath, newPath);
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        },readlink:function (node) {
+          var path = NODEFS.realPath(node);
+          try {
+            path = fs.readlinkSync(path);
+            path = NODEJS_PATH.relative(NODEJS_PATH.resolve(node.mount.opts.root), path);
+            return path;
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        }},stream_ops:{open:function (stream) {
+          var path = NODEFS.realPath(stream.node);
+          try {
+            if (FS.isFile(stream.node.mode)) {
+              stream.nfd = fs.openSync(path, NODEFS.flagsForNode(stream.flags));
+            }
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        },close:function (stream) {
+          try {
+            if (FS.isFile(stream.node.mode) && stream.nfd) {
+              fs.closeSync(stream.nfd);
+            }
+          } catch (e) {
+            if (!e.code) throw e;
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        },read:function (stream, buffer, offset, length, position) {
+          // Node.js < 6 compatibility: node errors on 0 length reads
+          if (length === 0) return 0;
+          try {
+            return fs.readSync(stream.nfd, NODEFS.bufferFrom(buffer.buffer), offset, length, position);
+          } catch (e) {
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        },write:function (stream, buffer, offset, length, position) {
+          try {
+            return fs.writeSync(stream.nfd, NODEFS.bufferFrom(buffer.buffer), offset, length, position);
+          } catch (e) {
+            throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+          }
+        },llseek:function (stream, offset, whence) {
+          var position = offset;
+          if (whence === 1) {  // SEEK_CUR.
+            position += stream.position;
+          } else if (whence === 2) {  // SEEK_END.
+            if (FS.isFile(stream.node.mode)) {
+              try {
+                var stat = fs.fstatSync(stream.nfd);
+                position += stat.size;
+              } catch (e) {
+                throw new FS.ErrnoError(ERRNO_CODES[e.code]);
+              }
+            }
+          }
+  
+          if (position < 0) {
+            throw new FS.ErrnoError(ERRNO_CODES.EINVAL);
+          }
+  
+          return position;
+        }}};
+  
+  var WORKERFS={DIR_MODE:16895,FILE_MODE:33279,reader:null,mount:function (mount) {
+        assert(ENVIRONMENT_IS_WORKER);
+        if (!WORKERFS.reader) WORKERFS.reader = new FileReaderSync();
+        var root = WORKERFS.createNode(null, '/', WORKERFS.DIR_MODE, 0);
+        var createdParents = {};
+        function ensureParent(path) {
+          // return the parent node, creating subdirs as necessary
+          var parts = path.split('/');
+          var parent = root;
+          for (var i = 0; i < parts.length-1; i++) {
+            var curr = parts.slice(0, i+1).join('/');
+            // Issue 4254: Using curr as a node name will prevent the node
+            // from being found in FS.nameTable when FS.open is called on
+            // a path which holds a child of this node,
+            // given that all FS functions assume node names
+            // are just their corresponding parts within their given path,
+            // rather than incremental aggregates which include their parent's
+            // directories.
+            if (!createdParents[curr]) {
+              createdParents[curr] = WORKERFS.createNode(parent, parts[i], WORKERFS.DIR_MODE, 0);
+            }
+            parent = createdParents[curr];
+          }
+          return parent;
+        }
+        function base(path) {
+          var parts = path.split('/');
+          return parts[parts.length-1];
+        }
+        // We also accept FileList here, by using Array.prototype
+        Array.prototype.forEach.call(mount.opts["files"] || [], function(file) {
+          WORKERFS.createNode(ensureParent(file.name), base(file.name), WORKERFS.FILE_MODE, 0, file, file.lastModifiedDate);
+        });
+        (mount.opts["blobs"] || []).forEach(function(obj) {
+          WORKERFS.createNode(ensureParent(obj["name"]), base(obj["name"]), WORKERFS.FILE_MODE, 0, obj["data"]);
+        });
+        (mount.opts["packages"] || []).forEach(function(pack) {
+          pack['metadata'].files.forEach(function(file) {
+            var name = file.filename.substr(1); // remove initial slash
+            WORKERFS.createNode(ensureParent(name), base(name), WORKERFS.FILE_MODE, 0, pack['blob'].slice(file.start, file.end));
+          });
+        });
+        return root;
+      },createNode:function (parent, name, mode, dev, contents, mtime) {
+        var node = FS.createNode(parent, name, mode);
+        node.mode = mode;
+        node.node_ops = WORKERFS.node_ops;
+        node.stream_ops = WORKERFS.stream_ops;
+        node.timestamp = (mtime || new Date).getTime();
+        assert(WORKERFS.FILE_MODE !== WORKERFS.DIR_MODE);
+        if (mode === WORKERFS.FILE_MODE) {
+          node.size = contents.size;
+          node.contents = contents;
+        } else {
+          node.size = 4096;
+          node.contents = {};
+        }
+        if (parent) {
+          parent.contents[name] = node;
+        }
+        return node;
+      },node_ops:{getattr:function (node) {
+          return {
+            dev: 1,
+            ino: undefined,
+            mode: node.mode,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev: undefined,
+            size: node.size,
+            atime: new Date(node.timestamp),
+            mtime: new Date(node.timestamp),
+            ctime: new Date(node.timestamp),
+            blksize: 4096,
+            blocks: Math.ceil(node.size / 4096),
+          };
+        },setattr:function (node, attr) {
+          if (attr.mode !== undefined) {
+            node.mode = attr.mode;
+          }
+          if (attr.timestamp !== undefined) {
+            node.timestamp = attr.timestamp;
+          }
+        },lookup:function (parent, name) {
+          throw new FS.ErrnoError(ERRNO_CODES.ENOENT);
+        },mknod:function (parent, name, mode, dev) {
+          throw new FS.ErrnoError(ERRNO_CODES.EPERM);
+        },rename:function (oldNode, newDir, newName) {
+          throw new FS.ErrnoError(ERRNO_CODES.EPERM);
+        },unlink:function (parent, name) {
+          throw new FS.ErrnoError(ERRNO_CODES.EPERM);
+        },rmdir:function (parent, name) {
+          throw new FS.ErrnoError(ERRNO_CODES.EPERM);
+        },readdir:function (node) {
+          var entries = ['.', '..'];
+          for (var key in node.contents) {
+            if (!node.contents.hasOwnProperty(key)) {
+              continue;
+            }
+            entries.push(key);
+          }
+          return entries;
+        },symlink:function (parent, newName, oldPath) {
+          throw new FS.ErrnoError(ERRNO_CODES.EPERM);
+        },readlink:function (node) {
+          throw new FS.ErrnoError(ERRNO_CODES.EPERM);
+        }},stream_ops:{read:function (stream, buffer, offset, length, position) {
+          if (position >= stream.node.size) return 0;
+          var chunk = stream.node.contents.slice(position, position + length);
+          var ab = WORKERFS.reader.readAsArrayBuffer(chunk);
+          buffer.set(new Uint8Array(ab), offset);
+          return chunk.size;
+        },write:function (stream, buffer, offset, length, position) {
+          throw new FS.ErrnoError(ERRNO_CODES.EIO);
+        },llseek:function (stream, offset, whence) {
+          var position = offset;
+          if (whence === 1) {  // SEEK_CUR.
+            position += stream.position;
+          } else if (whence === 2) {  // SEEK_END.
+            if (FS.isFile(stream.node.mode)) {
+              position += stream.node.size;
+            }
+          }
+          if (position < 0) {
+            throw new FS.ErrnoError(ERRNO_CODES.EINVAL);
+          }
+          return position;
+        }}};
+  
+  var ERRNO_MESSAGES={0:"Success",1:"Not super-user",2:"No such file or directory",3:"No such process",4:"Interrupted system call",5:"I/O error",6:"No such device or address",7:"Arg list too long",8:"Exec format error",9:"Bad file number",10:"No children",11:"No more processes",12:"Not enough core",13:"Permission denied",14:"Bad address",15:"Block device required",16:"Mount device busy",17:"File exists",18:"Cross-device link",19:"No such device",20:"Not a directory",21:"Is a directory",22:"Invalid argument",23:"Too many open files in system",24:"Too many open files",25:"Not a typewriter",26:"Text file busy",27:"File too large",28:"No space left on device",29:"Illegal seek",30:"Read only file system",31:"Too many links",32:"Broken pipe",33:"Math arg out of domain of func",34:"Math result not representable",35:"File locking deadlock error",36:"File or path name too long",37:"No record locks available",38:"Function not implemented",39:"Directory not empty",40:"Too many symbolic links",42:"No message of desired type",43:"Identifier removed",44:"Channel number out of range",45:"Level 2 not synchronized",46:"Level 3 halted",47:"Level 3 reset",48:"Link number out of range",49:"Protocol driver not attached",50:"No CSI structure available",51:"Level 2 halted",52:"Invalid exchange",53:"Invalid request descriptor",54:"Exchange full",55:"No anode",56:"Invalid request code",57:"Invalid slot",59:"Bad font file fmt",60:"Device not a stream",61:"No data (for no delay io)",62:"Timer expired",63:"Out of streams resources",64:"Machine is not on the network",65:"Package not installed",66:"The object is remote",67:"The link has been severed",68:"Advertise error",69:"Srmount error",70:"Communication error on send",71:"Protocol error",72:"Multihop attempted",73:"Cross mount point (not really error)",74:"Trying to read unreadable message",75:"Value too large for defined data type",76:"Given log. name not unique",77:"f.d. invalid for this operation",78:"Remote address changed",79:"Can   access a needed shared lib",80:"Accessing a corrupted shared lib",81:".lib section in a.out corrupted",82:"Attempting to link in too many libs",83:"Attempting to exec a shared library",84:"Illegal byte sequence",86:"Streams pipe error",87:"Too many users",88:"Socket operation on non-socket",89:"Destination address required",90:"Message too long",91:"Protocol wrong type for socket",92:"Protocol not available",93:"Unknown protocol",94:"Socket type not supported",95:"Not supported",96:"Protocol family not supported",97:"Address family not supported by protocol family",98:"Address already in use",99:"Address not available",100:"Network interface is not configured",101:"Network is unreachable",102:"Connection reset by network",103:"Connection aborted",104:"Connection reset by peer",105:"No buffer space available",106:"Socket is already connected",107:"Socket is not connected",108:"Can't send after socket shutdown",109:"Too many references",110:"Connection timed out",111:"Connection refused",112:"Host is down",113:"Host is unreachable",114:"Socket already connected",115:"Connection already in progress",116:"Stale file handle",122:"Quota exceeded",123:"No medium (in tape drive)",125:"Operation canceled",130:"Previous owner died",131:"State not recoverable"};
+  
+  var ERRNO_CODES={EPERM:1,ENOENT:2,ESRCH:3,EINTR:4,EIO:5,ENXIO:6,E2BIG:7,ENOEXEC:8,EBADF:9,ECHILD:10,EAGAIN:11,EWOULDBLOCK:11,ENOMEM:12,EACCES:13,EFAULT:14,ENOTBLK:15,EBUSY:16,EEXIST:17,EXDEV:18,ENODEV:19,ENOTDIR:20,EISDIR:21,EINVAL:22,ENFILE:23,EMFILE:24,ENOTTY:25,ETXTBSY:26,EFBIG:27,ENOSPC:28,ESPIPE:29,EROFS:30,EMLINK:31,EPIPE:32,EDOM:33,ERANGE:34,ENOMSG:42,EIDRM:43,ECHRNG:44,EL2NSYNC:45,EL3HLT:46,EL3RST:47,ELNRNG:48,EUNATCH:49,ENOCSI:50,EL2HLT:51,EDEADLK:35,ENOLCK:37,EBADE:52,EBADR:53,EXFULL:54,ENOANO:55,EBADRQC:56,EBADSLT:57,EDEADLOCK:35,EBFONT:59,ENOSTR:60,ENODATA:61,ETIME:62,ENOSR:63,ENONET:64,ENOPKG:65,EREMOTE:66,ENOLINK:67,EADV:68,ESRMNT:69,ECOMM:70,EPROTO:71,EMULTIHOP:72,EDOTDOT:73,EBADMSG:74,ENOTUNIQ:76,EBADFD:77,EREMCHG:78,ELIBACC:79,ELIBBAD:80,ELIBSCN:81,ELIBMAX:82,ELIBEXEC:83,ENOSYS:38,ENOTEMPTY:39,ENAMETOOLONG:36,ELOOP:40,EOPNOTSUPP:95,EPFNOSUPPORT:96,ECONNRESET:104,ENOBUFS:105,EAFNOSUPPORT:97,EPROTOTYPE:91,ENOTSOCK:88,ENOPROTOOPT:92,ESHUTDOWN:108,ECONNREFUSED:111,EADDRINUSE:98,ECONNABORTED:103,ENETUNREACH:101,ENETDOWN:100,ETIMEDOUT:110,EHOSTDOWN:112,EHOSTUNREACH:113,EINPROGRESS:115,EALREADY:114,EDESTADDRREQ:89,EMSGSIZE:90,EPROTONOSUPPORT:93,ESOCKTNOSUPPORT:94,EADDRNOTAVAIL:99,ENETRESET:102,EISCONN:106,ENOTCONN:107,ETOOMANYREFS:109,EUSERS:87,EDQUOT:122,ESTALE:116,ENOTSUP:95,ENOMEDIUM:123,EILSEQ:84,EOVERFLOW:75,ECANCELED:125,ENOTRECOVERABLE:131,EOWNERDEAD:130,ESTRPIPE:86};
+  
+  var _stdin; if (ENVIRONMENT_IS_PTHREAD) _stdin = PthreadWorkerInit._stdin; else PthreadWorkerInit._stdin = _stdin = 1082064;
+  
+  var _stdout; if (ENVIRONMENT_IS_PTHREAD) _stdout = PthreadWorkerInit._stdout; else PthreadWorkerInit._stdout = _stdout = 1082080;
+  
+  var _stderr; if (ENVIRONMENT_IS_PTHREAD) _stderr = PthreadWorkerInit._stderr; else PthreadWorkerInit._stderr = _stderr = 1082096;var FS={root:null,mounts:[],devices:{},streams:[],nextInode:1,nameTable:null,currentPath:"/",initialized:false,ignorePermissions:true,trackingDelegate:{},tracking:{openFlags:{READ:1,WRITE:2}},ErrnoError:null,genericErrors:{},filesystems:null,syncFSRequests:0,handleFSError:function (e) {
+        if (!(e instanceof FS.ErrnoError)) throw e + ' : ' + stackTrace();
+        return ___setErrNo(e.errno);
+      },lookupPath:function (path, opts) {
+        path = PATH.resolve(FS.cwd(), path);
+        opts = opts || {};
+  
+        if (!path) return { path: '', node: null };
+  
+        var defaults = {
+          follow_mount: true,
+          recurse_count: 0
+        };
+        for (var key in defaults) {
+          if (opts[key] === undefined) {
+            opts[key] = defaults[key];
+          }
+        }
+  
+        if (opts.recurse_count > 8) {  // max recursive lookup of 8
+          throw new FS.ErrnoError(40);
+        }
+  
+        // split the path
+        var parts = PATH.normalizeArray(path.split('/').filter(function(p) {
+          return !!p;
+        }), false);
+  
+        // start at the root
+        var current = FS.root;
+        var current_path = '/';
+  
+        for (var i = 0; i < parts.length; i++) {
+          var islast = (i === parts.length-1);
+          if (islast && opts.parent) {
+            // stop resolving
+            break;
+          }
+  
+          current = FS.lookupNode(current, parts[i]);
+          current_path = PATH.join2(current_path, parts[i]);
+  
+          // jump to the mount's root node if this is a mountpoint
+          if (FS.isMountpoint(current)) {
+            if (!islast || (islast && opts.follow_mount)) {
+              current = current.mounted.root;
+            }
+          }
+  
+          // by default, lookupPath will not follow a symlink if it is the final path component.
+          // setting opts.follow = true will override this behavior.
+          if (!islast || opts.follow) {
+            var count = 0;
+            while (FS.isLink(current.mode)) {
+              var link = FS.readlink(current_path);
+              current_path = PATH.resolve(PATH.dirname(current_path), link);
+  
+              var lookup = FS.lookupPath(current_path, { recurse_count: opts.recurse_count });
+              current = lookup.node;
+  
+              if (count++ > 40) {  // limit max consecutive symlinks to 40 (SYMLOOP_MAX).
+                throw new FS.ErrnoError(40);
+              }
+            }
+          }
+        }
+  
+        return { path: current_path, node: current };
+      },getPath:function (node) {
+        var path;
+        while (true) {
+          if (FS.isRoot(node)) {
+            var mount = node.mount.mountpoint;
+            if (!path) return mount;
+            return mount[mount.length-1] !== '/' ? mount + '/' + path : mount + path;
+          }
+          path = path ? node.name + '/' + path : node.name;
+          node = node.parent;
+        }
+      },hashName:function (parentid, name) {
+        var hash = 0;
+  
+  
+        for (var i = 0; i < name.length; i++) {
+          hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+        }
+        return ((parentid + hash) >>> 0) % FS.nameTable.length;
+      },hashAddNode:function (node) {
+        var hash = FS.hashName(node.parent.id, node.name);
+        node.name_next = FS.nameTable[hash];
+        FS.nameTable[hash] = node;
+      },hashRemoveNode:function (node) {
+        var hash = FS.hashName(node.parent.id, node.name);
+        if (FS.nameTable[hash] === node) {
+          FS.nameTable[hash] = node.name_next;
+        } else {
+          var current = FS.nameTable[hash];
+          while (current) {
+            if (current.name_next === node) {
+              current.name_next = node.name_next;
+              break;
+            }
+            current = current.name_next;
+          }
+        }
+      },lookupNode:function (parent, name) {
+        var err = FS.mayLookup(parent);
+        if (err) {
+          throw new FS.ErrnoError(err, parent);
+        }
+        var hash = FS.hashName(parent.id, name);
+        for (var node = FS.nameTable[hash]; node; node = node.name_next) {
+          var nodeName = node.name;
+          if (node.parent.id === parent.id && nodeName === name) {
+            return node;
+          }
+        }
+        // if we failed to find it in the cache, call into the VFS
+        return FS.lookup(parent, name);
+      },createNode:function (parent, name, mode, rdev) {
+        if (!FS.FSNode) {
+          FS.FSNode = function(parent, name, mode, rdev) {
+            if (!parent) {
+              parent = this;  // root node sets parent to itself
+            }
+            this.parent = parent;
+            this.mount = parent.mount;
+            this.mounted = null;
+            this.id = FS.nextInode++;
+            this.name = name;
+            this.mode = mode;
+            this.node_ops = {};
+            this.stream_ops = {};
+            this.rdev = rdev;
+          };
+  
+          FS.FSNode.prototype = {};
+  
+          // compatibility
+          var readMode = 292 | 73;
+          var writeMode = 146;
+  
+          // NOTE we must use Object.defineProperties instead of individual calls to
+          // Object.defineProperty in order to make closure compiler happy
+          Object.defineProperties(FS.FSNode.prototype, {
+            read: {
+              get: function() { return (this.mode & readMode) === readMode; },
+              set: function(val) { val ? this.mode |= readMode : this.mode &= ~readMode; }
+            },
+            write: {
+              get: function() { return (this.mode & writeMode) === writeMode; },
+              set: function(val) { val ? this.mode |= writeMode : this.mode &= ~writeMode; }
+            },
+            isFolder: {
+              get: function() { return FS.isDir(this.mode); }
+            },
+            isDevice: {
+              get: function() { return FS.isChrdev(this.mode); }
+            }
+          });
+        }
+  
+        var node = new FS.FSNode(parent, name, mode, rdev);
+  
+        FS.hashAddNode(node);
+  
+        return node;
+      },destroyNode:function (node) {
+        FS.hashRemoveNode(node);
+      },isRoot:function (node) {
+        return node === node.parent;
+      },isMountpoint:function (node) {
+        return !!node.mounted;
+      },isFile:function (mode) {
+        return (mode & 61440) === 32768;
+      },isDir:function (mode) {
+        return (mode & 61440) === 16384;
+      },isLink:function (mode) {
+        return (mode & 61440) === 40960;
+      },isChrdev:function (mode) {
+        return (mode & 61440) === 8192;
+      },isBlkdev:function (mode) {
+        return (mode & 61440) === 24576;
+      },isFIFO:function (mode) {
+        return (mode & 61440) === 4096;
+      },isSocket:function (mode) {
+        return (mode & 49152) === 49152;
+      },flagModes:{"r":0,"rs":1052672,"r+":2,"w":577,"wx":705,"xw":705,"w+":578,"wx+":706,"xw+":706,"a":1089,"ax":1217,"xa":1217,"a+":1090,"ax+":1218,"xa+":1218},modeStringToFlags:function (str) {
+        var flags = FS.flagModes[str];
+        if (typeof flags === 'undefined') {
+          throw new Error('Unknown file open mode: ' + str);
+        }
+        return flags;
+      },flagsToPermissionString:function (flag) {
+        var perms = ['r', 'w', 'rw'][flag & 3];
+        if ((flag & 512)) {
+          perms += 'w';
+        }
+        return perms;
+      },nodePermissions:function (node, perms) {
+        if (FS.ignorePermissions) {
+          return 0;
+        }
+        // return 0 if any user, group or owner bits are set.
+        if (perms.indexOf('r') !== -1 && !(node.mode & 292)) {
+          return 13;
+        } else if (perms.indexOf('w') !== -1 && !(node.mode & 146)) {
+          return 13;
+        } else if (perms.indexOf('x') !== -1 && !(node.mode & 73)) {
+          return 13;
+        }
+        return 0;
+      },mayLookup:function (dir) {
+        var err = FS.nodePermissions(dir, 'x');
+        if (err) return err;
+        if (!dir.node_ops.lookup) return 13;
+        return 0;
+      },mayCreate:function (dir, name) {
+        try {
+          var node = FS.lookupNode(dir, name);
+          return 17;
+        } catch (e) {
+        }
+        return FS.nodePermissions(dir, 'wx');
+      },mayDelete:function (dir, name, isdir) {
+        var node;
+        try {
+          node = FS.lookupNode(dir, name);
+        } catch (e) {
+          return e.errno;
+        }
+        var err = FS.nodePermissions(dir, 'wx');
+        if (err) {
+          return err;
+        }
+        if (isdir) {
+          if (!FS.isDir(node.mode)) {
+            return 20;
+          }
+          if (FS.isRoot(node) || FS.getPath(node) === FS.cwd()) {
+            return 16;
+          }
+        } else {
+          if (FS.isDir(node.mode)) {
+            return 21;
+          }
+        }
+        return 0;
+      },mayOpen:function (node, flags) {
+        if (!node) {
+          return 2;
+        }
+        if (FS.isLink(node.mode)) {
+          return 40;
+        } else if (FS.isDir(node.mode)) {
+          if (FS.flagsToPermissionString(flags) !== 'r' || // opening for write
+              (flags & 512)) { // TODO: check for O_SEARCH? (== search for dir only)
+            return 21;
+          }
+        }
+        return FS.nodePermissions(node, FS.flagsToPermissionString(flags));
+      },MAX_OPEN_FDS:4096,nextfd:function (fd_start, fd_end) {
+        fd_start = fd_start || 0;
+        fd_end = fd_end || FS.MAX_OPEN_FDS;
+        for (var fd = fd_start; fd <= fd_end; fd++) {
+          if (!FS.streams[fd]) {
+            return fd;
+          }
+        }
+        throw new FS.ErrnoError(24);
+      },getStream:function (fd) {
+        return FS.streams[fd];
+      },createStream:function (stream, fd_start, fd_end) {
+        if (!FS.FSStream) {
+          FS.FSStream = function(){};
+          FS.FSStream.prototype = {};
+          // compatibility
+          Object.defineProperties(FS.FSStream.prototype, {
+            object: {
+              get: function() { return this.node; },
+              set: function(val) { this.node = val; }
+            },
+            isRead: {
+              get: function() { return (this.flags & 2097155) !== 1; }
+            },
+            isWrite: {
+              get: function() { return (this.flags & 2097155) !== 0; }
+            },
+            isAppend: {
+              get: function() { return (this.flags & 1024); }
+            }
+          });
+        }
+        // clone it, so we can return an instance of FSStream
+        var newStream = new FS.FSStream();
+        for (var p in stream) {
+          newStream[p] = stream[p];
+        }
+        stream = newStream;
+        var fd = FS.nextfd(fd_start, fd_end);
+        stream.fd = fd;
+        FS.streams[fd] = stream;
+        return stream;
+      },closeStream:function (fd) {
+        FS.streams[fd] = null;
+      },chrdev_stream_ops:{open:function (stream) {
+          var device = FS.getDevice(stream.node.rdev);
+          // override node's stream ops with the device's
+          stream.stream_ops = device.stream_ops;
+          // forward the open call
+          if (stream.stream_ops.open) {
+            stream.stream_ops.open(stream);
+          }
+        },llseek:function () {
+          throw new FS.ErrnoError(29);
+        }},major:function (dev) {
+        return ((dev) >> 8);
+      },minor:function (dev) {
+        return ((dev) & 0xff);
+      },makedev:function (ma, mi) {
+        return ((ma) << 8 | (mi));
+      },registerDevice:function (dev, ops) {
+        FS.devices[dev] = { stream_ops: ops };
+      },getDevice:function (dev) {
+        return FS.devices[dev];
+      },getMounts:function (mount) {
+        var mounts = [];
+        var check = [mount];
+  
+        while (check.length) {
+          var m = check.pop();
+  
+          mounts.push(m);
+  
+          check.push.apply(check, m.mounts);
+        }
+  
+        return mounts;
+      },syncfs:function (populate, callback) {
+        if (typeof(populate) === 'function') {
+          callback = populate;
+          populate = false;
+        }
+  
+        FS.syncFSRequests++;
+  
+        if (FS.syncFSRequests > 1) {
+          console.log('warning: ' + FS.syncFSRequests + ' FS.syncfs operations in flight at once, probably just doing extra work');
+        }
+  
+        var mounts = FS.getMounts(FS.root.mount);
+        var completed = 0;
+  
+        function doCallback(err) {
+          assert(FS.syncFSRequests > 0);
+          FS.syncFSRequests--;
+          return callback(err);
+        }
+  
+        function done(err) {
+          if (err) {
+            if (!done.errored) {
+              done.errored = true;
+              return doCallback(err);
+            }
+            return;
+          }
+          if (++completed >= mounts.length) {
+            doCallback(null);
+          }
+        };
+  
+        // sync all mounts
+        mounts.forEach(function (mount) {
+          if (!mount.type.syncfs) {
+            return done(null);
+          }
+          mount.type.syncfs(mount, populate, done);
+        });
+      },mount:function (type, opts, mountpoint) {
+        var root = mountpoint === '/';
+        var pseudo = !mountpoint;
+        var node;
+  
+        if (root && FS.root) {
+          throw new FS.ErrnoError(16);
+        } else if (!root && !pseudo) {
+          var lookup = FS.lookupPath(mountpoint, { follow_mount: false });
+  
+          mountpoint = lookup.path;  // use the absolute path
+          node = lookup.node;
+  
+          if (FS.isMountpoint(node)) {
+            throw new FS.ErrnoError(16);
+          }
+  
+          if (!FS.isDir(node.mode)) {
+            throw new FS.ErrnoError(20);
+          }
+        }
+  
+        var mount = {
+          type: type,
+          opts: opts,
+          mountpoint: mountpoint,
+          mounts: []
+        };
+  
+        // create a root node for the fs
+        var mountRoot = type.mount(mount);
+        mountRoot.mount = mount;
+        mount.root = mountRoot;
+  
+        if (root) {
+          FS.root = mountRoot;
+        } else if (node) {
+          // set as a mountpoint
+          node.mounted = mount;
+  
+          // add the new mount to the current mount's children
+          if (node.mount) {
+            node.mount.mounts.push(mount);
+          }
+        }
+  
+        return mountRoot;
+      },unmount:function (mountpoint) {
+        var lookup = FS.lookupPath(mountpoint, { follow_mount: false });
+  
+        if (!FS.isMountpoint(lookup.node)) {
+          throw new FS.ErrnoError(22);
+        }
+  
+        // destroy the nodes for this mount, and all its child mounts
+        var node = lookup.node;
+        var mount = node.mounted;
+        var mounts = FS.getMounts(mount);
+  
+        Object.keys(FS.nameTable).forEach(function (hash) {
+          var current = FS.nameTable[hash];
+  
+          while (current) {
+            var next = current.name_next;
+  
+            if (mounts.indexOf(current.mount) !== -1) {
+              FS.destroyNode(current);
+            }
+  
+            current = next;
+          }
+        });
+  
+        // no longer a mountpoint
+        node.mounted = null;
+  
+        // remove this mount from the child mounts
+        var idx = node.mount.mounts.indexOf(mount);
+        assert(idx !== -1);
+        node.mount.mounts.splice(idx, 1);
+      },lookup:function (parent, name) {
+        return parent.node_ops.lookup(parent, name);
+      },mknod:function (path, mode, dev) {
+        var lookup = FS.lookupPath(path, { parent: true });
+        var parent = lookup.node;
+        var name = PATH.basename(path);
+        if (!name || name === '.' || name === '..') {
+          throw new FS.ErrnoError(22);
+        }
+        var err = FS.mayCreate(parent, name);
+        if (err) {
+          throw new FS.ErrnoError(err);
+        }
+        if (!parent.node_ops.mknod) {
+          throw new FS.ErrnoError(1);
+        }
+        return parent.node_ops.mknod(parent, name, mode, dev);
+      },create:function (path, mode) {
+        mode = mode !== undefined ? mode : 438 /* 0666 */;
+        mode &= 4095;
+        mode |= 32768;
+        return FS.mknod(path, mode, 0);
+      },mkdir:function (path, mode) {
+        mode = mode !== undefined ? mode : 511 /* 0777 */;
+        mode &= 511 | 512;
+        mode |= 16384;
+        return FS.mknod(path, mode, 0);
+      },mkdirTree:function (path, mode) {
+        var dirs = path.split('/');
+        var d = '';
+        for (var i = 0; i < dirs.length; ++i) {
+          if (!dirs[i]) continue;
+          d += '/' + dirs[i];
+          try {
+            FS.mkdir(d, mode);
+          } catch(e) {
+            if (e.errno != 17) throw e;
+          }
+        }
+      },mkdev:function (path, mode, dev) {
+        if (typeof(dev) === 'undefined') {
+          dev = mode;
+          mode = 438 /* 0666 */;
+        }
+        mode |= 8192;
+        return FS.mknod(path, mode, dev);
+      },symlink:function (oldpath, newpath) {
+        if (!PATH.resolve(oldpath)) {
+          throw new FS.ErrnoError(2);
+        }
+        var lookup = FS.lookupPath(newpath, { parent: true });
+        var parent = lookup.node;
+        if (!parent) {
+          throw new FS.ErrnoError(2);
+        }
+        var newname = PATH.basename(newpath);
+        var err = FS.mayCreate(parent, newname);
+        if (err) {
+          throw new FS.ErrnoError(err);
+        }
+        if (!parent.node_ops.symlink) {
+          throw new FS.ErrnoError(1);
+        }
+        return parent.node_ops.symlink(parent, newname, oldpath);
+      },rename:function (old_path, new_path) {
+        var old_dirname = PATH.dirname(old_path);
+        var new_dirname = PATH.dirname(new_path);
+        var old_name = PATH.basename(old_path);
+        var new_name = PATH.basename(new_path);
+        // parents must exist
+        var lookup, old_dir, new_dir;
+        try {
+          lookup = FS.lookupPath(old_path, { parent: true });
+          old_dir = lookup.node;
+          lookup = FS.lookupPath(new_path, { parent: true });
+          new_dir = lookup.node;
+        } catch (e) {
+          throw new FS.ErrnoError(16);
+        }
+        if (!old_dir || !new_dir) throw new FS.ErrnoError(2);
+        // need to be part of the same mount
+        if (old_dir.mount !== new_dir.mount) {
+          throw new FS.ErrnoError(18);
+        }
+        // source must exist
+        var old_node = FS.lookupNode(old_dir, old_name);
+        // old path should not be an ancestor of the new path
+        var relative = PATH.relative(old_path, new_dirname);
+        if (relative.charAt(0) !== '.') {
+          throw new FS.ErrnoError(22);
+        }
+        // new path should not be an ancestor of the old path
+        relative = PATH.relative(new_path, old_dirname);
+        if (relative.charAt(0) !== '.') {
+          throw new FS.ErrnoError(39);
+        }
+        // see if the new path already exists
+        var new_node;
+        try {
+          new_node = FS.lookupNode(new_dir, new_name);
+        } catch (e) {
+          // not fatal
+        }
+        // early out if nothing needs to change
+        if (old_node === new_node) {
+          return;
+        }
+        // we'll need to delete the old entry
+        var isdir = FS.isDir(old_node.mode);
+        var err = FS.mayDelete(old_dir, old_name, isdir);
+        if (err) {
+          throw new FS.ErrnoError(err);
+        }
+        // need delete permissions if we'll be overwriting.
+        // need create permissions if new doesn't already exist.
+        err = new_node ?
+          FS.mayDelete(new_dir, new_name, isdir) :
+          FS.mayCreate(new_dir, new_name);
+        if (err) {
+          throw new FS.ErrnoError(err);
+        }
+        if (!old_dir.node_ops.rename) {
+          throw new FS.ErrnoError(1);
+        }
+        if (FS.isMountpoint(old_node) || (new_node && FS.isMountpoint(new_node))) {
+          throw new FS.ErrnoError(16);
+        }
+        // if we are going to change the parent, check write permissions
+        if (new_dir !== old_dir) {
+          err = FS.nodePermissions(old_dir, 'w');
+          if (err) {
+            throw new FS.ErrnoError(err);
+          }
+        }
+        try {
+          if (FS.trackingDelegate['willMovePath']) {
+            FS.trackingDelegate['willMovePath'](old_path, new_path);
+          }
+        } catch(e) {
+          console.log("FS.trackingDelegate['willMovePath']('"+old_path+"', '"+new_path+"') threw an exception: " + e.message);
+        }
+        // remove the node from the lookup hash
+        FS.hashRemoveNode(old_node);
+        // do the underlying fs rename
+        try {
+          old_dir.node_ops.rename(old_node, new_dir, new_name);
+        } catch (e) {
+          throw e;
+        } finally {
+          // add the node back to the hash (in case node_ops.rename
+          // changed its name)
+          FS.hashAddNode(old_node);
+        }
+        try {
+          if (FS.trackingDelegate['onMovePath']) FS.trackingDelegate['onMovePath'](old_path, new_path);
+        } catch(e) {
+          console.log("FS.trackingDelegate['onMovePath']('"+old_path+"', '"+new_path+"') threw an exception: " + e.message);
+        }
+      },rmdir:function (path) {
+        var lookup = FS.lookupPath(path, { parent: true });
+        var parent = lookup.node;
+        var name = PATH.basename(path);
+        var node = FS.lookupNode(parent, name);
+        var err = FS.mayDelete(parent, name, true);
+        if (err) {
+          throw new FS.ErrnoError(err);
+        }
+        if (!parent.node_ops.rmdir) {
+          throw new FS.ErrnoError(1);
+        }
+        if (FS.isMountpoint(node)) {
+          throw new FS.ErrnoError(16);
+        }
+        try {
+          if (FS.trackingDelegate['willDeletePath']) {
+            FS.trackingDelegate['willDeletePath'](path);
+          }
+        } catch(e) {
+          console.log("FS.trackingDelegate['willDeletePath']('"+path+"') threw an exception: " + e.message);
+        }
+        parent.node_ops.rmdir(parent, name);
+        FS.destroyNode(node);
+        try {
+          if (FS.trackingDelegate['onDeletePath']) FS.trackingDelegate['onDeletePath'](path);
+        } catch(e) {
+          console.log("FS.trackingDelegate['onDeletePath']('"+path+"') threw an exception: " + e.message);
+        }
+      },readdir:function (path) {
+        var lookup = FS.lookupPath(path, { follow: true });
+        var node = lookup.node;
+        if (!node.node_ops.readdir) {
+          throw new FS.ErrnoError(20);
+        }
+        return node.node_ops.readdir(node);
+      },unlink:function (path) {
+        var lookup = FS.lookupPath(path, { parent: true });
+        var parent = lookup.node;
+        var name = PATH.basename(path);
+        var node = FS.lookupNode(parent, name);
+        var err = FS.mayDelete(parent, name, false);
+        if (err) {
+          // According to POSIX, we should map EISDIR to EPERM, but
+          // we instead do what Linux does (and we must, as we use
+          // the musl linux libc).
+          throw new FS.ErrnoError(err);
+        }
+        if (!parent.node_ops.unlink) {
+          throw new FS.ErrnoError(1);
+        }
+        if (FS.isMountpoint(node)) {
+          throw new FS.ErrnoError(16);
+        }
+        try {
+          if (FS.trackingDelegate['willDeletePath']) {
+            FS.trackingDelegate['willDeletePath'](path);
+          }
+        } catch(e) {
+          console.log("FS.trackingDelegate['willDeletePath']('"+path+"') threw an exception: " + e.message);
+        }
+        parent.node_ops.unlink(parent, name);
+        FS.destroyNode(node);
+        try {
+          if (FS.trackingDelegate['onDeletePath']) FS.trackingDelegate['onDeletePath'](path);
+        } catch(e) {
+          console.log("FS.trackingDelegate['onDeletePath']('"+path+"') threw an exception: " + e.message);
+        }
+      },readlink:function (path) {
+        var lookup = FS.lookupPath(path);
+        var link = lookup.node;
+        if (!link) {
+          throw new FS.ErrnoError(2);
+        }
+        if (!link.node_ops.readlink) {
+          throw new FS.ErrnoError(22);
+        }
+        return PATH.resolve(FS.getPath(link.parent), link.node_ops.readlink(link));
+      },stat:function (path, dontFollow) {
+        var lookup = FS.lookupPath(path, { follow: !dontFollow });
+        var node = lookup.node;
+        if (!node) {
+          throw new FS.ErrnoError(2);
+        }
+        if (!node.node_ops.getattr) {
+          throw new FS.ErrnoError(1);
+        }
+        return node.node_ops.getattr(node);
+      },lstat:function (path) {
+        return FS.stat(path, true);
+      },chmod:function (path, mode, dontFollow) {
+        var node;
+        if (typeof path === 'string') {
+          var lookup = FS.lookupPath(path, { follow: !dontFollow });
+          node = lookup.node;
+        } else {
+          node = path;
+        }
+        if (!node.node_ops.setattr) {
+          throw new FS.ErrnoError(1);
+        }
+        node.node_ops.setattr(node, {
+          mode: (mode & 4095) | (node.mode & ~4095),
+          timestamp: Date.now()
+        });
+      },lchmod:function (path, mode) {
+        FS.chmod(path, mode, true);
+      },fchmod:function (fd, mode) {
+        var stream = FS.getStream(fd);
+        if (!stream) {
+          throw new FS.ErrnoError(9);
+        }
+        FS.chmod(stream.node, mode);
+      },chown:function (path, uid, gid, dontFollow) {
+        var node;
+        if (typeof path === 'string') {
+          var lookup = FS.lookupPath(path, { follow: !dontFollow });
+          node = lookup.node;
+        } else {
+          node = path;
+        }
+        if (!node.node_ops.setattr) {
+          throw new FS.ErrnoError(1);
+        }
+        node.node_ops.setattr(node, {
+          timestamp: Date.now()
+          // we ignore the uid / gid for now
+        });
+      },lchown:function (path, uid, gid) {
+        FS.chown(path, uid, gid, true);
+      },fchown:function (fd, uid, gid) {
+        var stream = FS.getStream(fd);
+        if (!stream) {
+          throw new FS.ErrnoError(9);
+        }
+        FS.chown(stream.node, uid, gid);
+      },truncate:function (path, len) {
+        if (len < 0) {
+          throw new FS.ErrnoError(22);
+        }
+        var node;
+        if (typeof path === 'string') {
+          var lookup = FS.lookupPath(path, { follow: true });
+          node = lookup.node;
+        } else {
+          node = path;
+        }
+        if (!node.node_ops.setattr) {
+          throw new FS.ErrnoError(1);
+        }
+        if (FS.isDir(node.mode)) {
+          throw new FS.ErrnoError(21);
+        }
+        if (!FS.isFile(node.mode)) {
+          throw new FS.ErrnoError(22);
+        }
+        var err = FS.nodePermissions(node, 'w');
+        if (err) {
+          throw new FS.ErrnoError(err);
+        }
+        node.node_ops.setattr(node, {
+          size: len,
+          timestamp: Date.now()
+        });
+      },ftruncate:function (fd, len) {
+        var stream = FS.getStream(fd);
+        if (!stream) {
+          throw new FS.ErrnoError(9);
+        }
+        if ((stream.flags & 2097155) === 0) {
+          throw new FS.ErrnoError(22);
+        }
+        FS.truncate(stream.node, len);
+      },utime:function (path, atime, mtime) {
+        var lookup = FS.lookupPath(path, { follow: true });
+        var node = lookup.node;
+        node.node_ops.setattr(node, {
+          timestamp: Math.max(atime, mtime)
+        });
+      },open:function (path, flags, mode, fd_start, fd_end) {
+        if (path === "") {
+          throw new FS.ErrnoError(2);
+        }
+        flags = typeof flags === 'string' ? FS.modeStringToFlags(flags) : flags;
+        mode = typeof mode === 'undefined' ? 438 /* 0666 */ : mode;
+        if ((flags & 64)) {
+          mode = (mode & 4095) | 32768;
+        } else {
+          mode = 0;
+        }
+        var node;
+        if (typeof path === 'object') {
+          node = path;
+        } else {
+          path = PATH.normalize(path);
+          try {
+            var lookup = FS.lookupPath(path, {
+              follow: !(flags & 131072)
+            });
+            node = lookup.node;
+          } catch (e) {
+            // ignore
+          }
+        }
+        // perhaps we need to create the node
+        var created = false;
+        if ((flags & 64)) {
+          if (node) {
+            // if O_CREAT and O_EXCL are set, error out if the node already exists
+            if ((flags & 128)) {
+              throw new FS.ErrnoError(17);
+            }
+          } else {
+            // node doesn't exist, try to create it
+            node = FS.mknod(path, mode, 0);
+            created = true;
+          }
+        }
+        if (!node) {
+          throw new FS.ErrnoError(2);
+        }
+        // can't truncate a device
+        if (FS.isChrdev(node.mode)) {
+          flags &= ~512;
+        }
+        // if asked only for a directory, then this must be one
+        if ((flags & 65536) && !FS.isDir(node.mode)) {
+          throw new FS.ErrnoError(20);
+        }
+        // check permissions, if this is not a file we just created now (it is ok to
+        // create and write to a file with read-only permissions; it is read-only
+        // for later use)
+        if (!created) {
+          var err = FS.mayOpen(node, flags);
+          if (err) {
+            throw new FS.ErrnoError(err);
+          }
+        }
+        // do truncation if necessary
+        if ((flags & 512)) {
+          FS.truncate(node, 0);
+        }
+        // we've already handled these, don't pass down to the underlying vfs
+        flags &= ~(128 | 512);
+  
+        // register the stream with the filesystem
+        var stream = FS.createStream({
+          node: node,
+          path: FS.getPath(node),  // we want the absolute path to the node
+          flags: flags,
+          seekable: true,
+          position: 0,
+          stream_ops: node.stream_ops,
+          // used by the file family libc calls (fopen, fwrite, ferror, etc.)
+          ungotten: [],
+          error: false
+        }, fd_start, fd_end);
+        // call the new stream's open function
+        if (stream.stream_ops.open) {
+          stream.stream_ops.open(stream);
+        }
+        if (Module['logReadFiles'] && !(flags & 1)) {
+          if (!FS.readFiles) FS.readFiles = {};
+          if (!(path in FS.readFiles)) {
+            FS.readFiles[path] = 1;
+            console.log("FS.trackingDelegate error on read file: " + path);
+          }
+        }
+        try {
+          if (FS.trackingDelegate['onOpenFile']) {
+            var trackingFlags = 0;
+            if ((flags & 2097155) !== 1) {
+              trackingFlags |= FS.tracking.openFlags.READ;
+            }
+            if ((flags & 2097155) !== 0) {
+              trackingFlags |= FS.tracking.openFlags.WRITE;
+            }
+            FS.trackingDelegate['onOpenFile'](path, trackingFlags);
+          }
+        } catch(e) {
+          console.log("FS.trackingDelegate['onOpenFile']('"+path+"', flags) threw an exception: " + e.message);
+        }
+        return stream;
+      },close:function (stream) {
+        if (FS.isClosed(stream)) {
+          throw new FS.ErrnoError(9);
+        }
+        if (stream.getdents) stream.getdents = null; // free readdir state
+        try {
+          if (stream.stream_ops.close) {
+            stream.stream_ops.close(stream);
+          }
+        } catch (e) {
+          throw e;
+        } finally {
+          FS.closeStream(stream.fd);
+        }
+        stream.fd = null;
+      },isClosed:function (stream) {
+        return stream.fd === null;
+      },llseek:function (stream, offset, whence) {
+        if (FS.isClosed(stream)) {
+          throw new FS.ErrnoError(9);
+        }
+        if (!stream.seekable || !stream.stream_ops.llseek) {
+          throw new FS.ErrnoError(29);
+        }
+        if (whence != 0 /* SEEK_SET */ && whence != 1 /* SEEK_CUR */ && whence != 2 /* SEEK_END */) {
+          throw new FS.ErrnoError(22);
+        }
+        stream.position = stream.stream_ops.llseek(stream, offset, whence);
+        stream.ungotten = [];
+        return stream.position;
+      },read:function (stream, buffer, offset, length, position) {
+        if (length < 0 || position < 0) {
+          throw new FS.ErrnoError(22);
+        }
+        if (FS.isClosed(stream)) {
+          throw new FS.ErrnoError(9);
+        }
+        if ((stream.flags & 2097155) === 1) {
+          throw new FS.ErrnoError(9);
+        }
+        if (FS.isDir(stream.node.mode)) {
+          throw new FS.ErrnoError(21);
+        }
+        if (!stream.stream_ops.read) {
+          throw new FS.ErrnoError(22);
+        }
+        var seeking = typeof position !== 'undefined';
+        if (!seeking) {
+          position = stream.position;
+        } else if (!stream.seekable) {
+          throw new FS.ErrnoError(29);
+        }
+        var bytesRead = stream.stream_ops.read(stream, buffer, offset, length, position);
+        if (!seeking) stream.position += bytesRead;
+        return bytesRead;
+      },write:function (stream, buffer, offset, length, position, canOwn) {
+        if (length < 0 || position < 0) {
+          throw new FS.ErrnoError(22);
+        }
+        if (FS.isClosed(stream)) {
+          throw new FS.ErrnoError(9);
+        }
+        if ((stream.flags & 2097155) === 0) {
+          throw new FS.ErrnoError(9);
+        }
+        if (FS.isDir(stream.node.mode)) {
+          throw new FS.ErrnoError(21);
+        }
+        if (!stream.stream_ops.write) {
+          throw new FS.ErrnoError(22);
+        }
+        if (stream.flags & 1024) {
+          // seek to the end before writing in append mode
+          FS.llseek(stream, 0, 2);
+        }
+        var seeking = typeof position !== 'undefined';
+        if (!seeking) {
+          position = stream.position;
+        } else if (!stream.seekable) {
+          throw new FS.ErrnoError(29);
+        }
+        var bytesWritten = stream.stream_ops.write(stream, buffer, offset, length, position, canOwn);
+        if (!seeking) stream.position += bytesWritten;
+        try {
+          if (stream.path && FS.trackingDelegate['onWriteToFile']) FS.trackingDelegate['onWriteToFile'](stream.path);
+        } catch(e) {
+          console.log("FS.trackingDelegate['onWriteToFile']('"+stream.path+"') threw an exception: " + e.message);
+        }
+        return bytesWritten;
+      },allocate:function (stream, offset, length) {
+        if (FS.isClosed(stream)) {
+          throw new FS.ErrnoError(9);
+        }
+        if (offset < 0 || length <= 0) {
+          throw new FS.ErrnoError(22);
+        }
+        if ((stream.flags & 2097155) === 0) {
+          throw new FS.ErrnoError(9);
+        }
+        if (!FS.isFile(stream.node.mode) && !FS.isDir(stream.node.mode)) {
+          throw new FS.ErrnoError(19);
+        }
+        if (!stream.stream_ops.allocate) {
+          throw new FS.ErrnoError(95);
+        }
+        stream.stream_ops.allocate(stream, offset, length);
+      },mmap:function (stream, buffer, offset, length, position, prot, flags) {
+        // TODO if PROT is PROT_WRITE, make sure we have write access
+        if ((stream.flags & 2097155) === 1) {
+          throw new FS.ErrnoError(13);
+        }
+        if (!stream.stream_ops.mmap) {
+          throw new FS.ErrnoError(19);
+        }
+        return stream.stream_ops.mmap(stream, buffer, offset, length, position, prot, flags);
+      },msync:function (stream, buffer, offset, length, mmapFlags) {
+        if (!stream || !stream.stream_ops.msync) {
+          return 0;
+        }
+        return stream.stream_ops.msync(stream, buffer, offset, length, mmapFlags);
+      },munmap:function (stream) {
+        return 0;
+      },ioctl:function (stream, cmd, arg) {
+        if (!stream.stream_ops.ioctl) {
+          throw new FS.ErrnoError(25);
+        }
+        return stream.stream_ops.ioctl(stream, cmd, arg);
+      },readFile:function (path, opts) {
+        opts = opts || {};
+        opts.flags = opts.flags || 'r';
+        opts.encoding = opts.encoding || 'binary';
+        if (opts.encoding !== 'utf8' && opts.encoding !== 'binary') {
+          throw new Error('Invalid encoding type "' + opts.encoding + '"');
+        }
+        var ret;
+        var stream = FS.open(path, opts.flags);
+        var stat = FS.stat(path);
+        var length = stat.size;
+        var buf = new Uint8Array(length);
+        FS.read(stream, buf, 0, length, 0);
+        if (opts.encoding === 'utf8') {
+          ret = UTF8ArrayToString(buf, 0);
+        } else if (opts.encoding === 'binary') {
+          ret = buf;
+        }
+        FS.close(stream);
+        return ret;
+      },writeFile:function (path, data, opts) {
+        opts = opts || {};
+        opts.flags = opts.flags || 'w';
+        var stream = FS.open(path, opts.flags, opts.mode);
+        if (typeof data === 'string') {
+          var buf = new Uint8Array(lengthBytesUTF8(data)+1);
+          var actualNumBytes = stringToUTF8Array(data, buf, 0, buf.length);
+          FS.write(stream, buf, 0, actualNumBytes, undefined, opts.canOwn);
+        } else if (ArrayBuffer.isView(data)) {
+          FS.write(stream, data, 0, data.byteLength, undefined, opts.canOwn);
+        } else {
+          throw new Error('Unsupported data type');
+        }
+        FS.close(stream);
+      },cwd:function () {
+        return FS.currentPath;
+      },chdir:function (path) {
+        var lookup = FS.lookupPath(path, { follow: true });
+        if (lookup.node === null) {
+          throw new FS.ErrnoError(2);
+        }
+        if (!FS.isDir(lookup.node.mode)) {
+          throw new FS.ErrnoError(20);
+        }
+        var err = FS.nodePermissions(lookup.node, 'x');
+        if (err) {
+          throw new FS.ErrnoError(err);
+        }
+        FS.currentPath = lookup.path;
+      },createDefaultDirectories:function () {
+        FS.mkdir('/tmp');
+        FS.mkdir('/home');
+        FS.mkdir('/home/web_user');
+      },createDefaultDevices:function () {
+        // create /dev
+        FS.mkdir('/dev');
+        // setup /dev/null
+        FS.registerDevice(FS.makedev(1, 3), {
+          read: function() { return 0; },
+          write: function(stream, buffer, offset, length, pos) { return length; }
+        });
+        FS.mkdev('/dev/null', FS.makedev(1, 3));
+        // setup /dev/tty and /dev/tty1
+        // stderr needs to print output using Module['printErr']
+        // so we register a second tty just for it.
+        TTY.register(FS.makedev(5, 0), TTY.default_tty_ops);
+        TTY.register(FS.makedev(6, 0), TTY.default_tty1_ops);
+        FS.mkdev('/dev/tty', FS.makedev(5, 0));
+        FS.mkdev('/dev/tty1', FS.makedev(6, 0));
+        // setup /dev/[u]random
+        var random_device;
+        if (typeof crypto === 'object' && typeof crypto['getRandomValues'] === 'function') {
+          // for modern web browsers
+          var randomBuffer = new Uint8Array(1);
+          random_device = function() { crypto.getRandomValues(randomBuffer); return randomBuffer[0]; };
+        } else
+        if (ENVIRONMENT_IS_NODE) {
+          // for nodejs with or without crypto support included
+          try {
+              var crypto_module = require('crypto');
+              // nodejs has crypto support
+              random_device = function() { return crypto_module['randomBytes'](1)[0]; };
+          } catch (e) {
+              // nodejs doesn't have crypto support so fallback to Math.random
+              random_device = function() { return (Math.random()*256)|0; };
+          }
+        } else
+        {
+          // default for ES5 platforms
+          random_device = function() { abort("random_device"); /*Math.random() is not safe for random number generation, so this fallback random_device implementation aborts... see emscripten-core/emscripten/pull/7096 */ };
+        }
+        FS.createDevice('/dev', 'random', random_device);
+        FS.createDevice('/dev', 'urandom', random_device);
+        // we're not going to emulate the actual shm device,
+        // just create the tmp dirs that reside in it commonly
+        FS.mkdir('/dev/shm');
+        FS.mkdir('/dev/shm/tmp');
+      },createSpecialDirectories:function () {
+        // create /proc/self/fd which allows /proc/self/fd/6 => readlink gives the name of the stream for fd 6 (see test_unistd_ttyname)
+        FS.mkdir('/proc');
+        FS.mkdir('/proc/self');
+        FS.mkdir('/proc/self/fd');
+        FS.mount({
+          mount: function() {
+            var node = FS.createNode('/proc/self', 'fd', 16384 | 511 /* 0777 */, 73);
+            node.node_ops = {
+              lookup: function(parent, name) {
+                var fd = +name;
+                var stream = FS.getStream(fd);
+                if (!stream) throw new FS.ErrnoError(9);
+                var ret = {
+                  parent: null,
+                  mount: { mountpoint: 'fake' },
+                  node_ops: { readlink: function() { return stream.path } }
+                };
+                ret.parent = ret; // make it look like a simple root node
+                return ret;
+              }
+            };
+            return node;
+          }
+        }, {}, '/proc/self/fd');
+      },createStandardStreams:function () {
+        // TODO deprecate the old functionality of a single
+        // input / output callback and that utilizes FS.createDevice
+        // and instead require a unique set of stream ops
+  
+        // by default, we symlink the standard streams to the
+        // default tty devices. however, if the standard streams
+        // have been overwritten we create a unique device for
+        // them instead.
+        if (Module['stdin']) {
+          FS.createDevice('/dev', 'stdin', Module['stdin']);
+        } else {
+          FS.symlink('/dev/tty', '/dev/stdin');
+        }
+        if (Module['stdout']) {
+          FS.createDevice('/dev', 'stdout', null, Module['stdout']);
+        } else {
+          FS.symlink('/dev/tty', '/dev/stdout');
+        }
+        if (Module['stderr']) {
+          FS.createDevice('/dev', 'stderr', null, Module['stderr']);
+        } else {
+          FS.symlink('/dev/tty1', '/dev/stderr');
+        }
+  
+        // open default streams for the stdin, stdout and stderr devices
+        var stdin = FS.open('/dev/stdin', 'r');
+        var stdout = FS.open('/dev/stdout', 'w');
+        var stderr = FS.open('/dev/stderr', 'w');
+        assert(stdin.fd === 0, 'invalid handle for stdin (' + stdin.fd + ')');
+        assert(stdout.fd === 1, 'invalid handle for stdout (' + stdout.fd + ')');
+        assert(stderr.fd === 2, 'invalid handle for stderr (' + stderr.fd + ')');
+      },ensureErrnoError:function () {
+        if (FS.ErrnoError) return;
+        FS.ErrnoError = function ErrnoError(errno, node) {
+          this.node = node;
+          this.setErrno = function(errno) {
+            this.errno = errno;
+            for (var key in ERRNO_CODES) {
+              if (ERRNO_CODES[key] === errno) {
+                this.code = key;
+                break;
+              }
+            }
+          };
+          this.setErrno(errno);
+          this.message = ERRNO_MESSAGES[errno];
+          // Node.js compatibility: assigning on this.stack fails on Node 4 (but fixed on Node 8)
+          if (this.stack) Object.defineProperty(this, "stack", { value: (new Error).stack, writable: true });
+          if (this.stack) this.stack = demangleAll(this.stack);
+        };
+        FS.ErrnoError.prototype = new Error();
+        FS.ErrnoError.prototype.constructor = FS.ErrnoError;
+        // Some errors may happen quite a bit, to avoid overhead we reuse them (and suffer a lack of stack info)
+        [2].forEach(function(code) {
+          FS.genericErrors[code] = new FS.ErrnoError(code);
+          FS.genericErrors[code].stack = '<generic error, no stack>';
+        });
+      },staticInit:function () {
+        FS.ensureErrnoError();
+  
+        FS.nameTable = new Array(4096);
+  
+        FS.mount(MEMFS, {}, '/');
+  
+        FS.createDefaultDirectories();
+        FS.createDefaultDevices();
+        FS.createSpecialDirectories();
+  
+        FS.filesystems = {
+          'MEMFS': MEMFS,
+          'IDBFS': IDBFS,
+          'NODEFS': NODEFS,
+          'WORKERFS': WORKERFS,
+        };
+      },init:function (input, output, error) {
+        assert(!FS.init.initialized, 'FS.init was previously called. If you want to initialize later with custom parameters, remove any earlier calls (note that one is automatically added to the generated code)');
+        FS.init.initialized = true;
+  
+        FS.ensureErrnoError();
+  
+        // Allow Module.stdin etc. to provide defaults, if none explicitly passed to us here
+        Module['stdin'] = input || Module['stdin'];
+        Module['stdout'] = output || Module['stdout'];
+        Module['stderr'] = error || Module['stderr'];
+  
+        FS.createStandardStreams();
+      },quit:function () {
+        FS.init.initialized = false;
+        // force-flush all streams, so we get musl std streams printed out
+        var fflush = Module['_fflush'];
+        if (fflush) fflush(0);
+        // close all of our streams
+        for (var i = 0; i < FS.streams.length; i++) {
+          var stream = FS.streams[i];
+          if (!stream) {
+            continue;
+          }
+          FS.close(stream);
+        }
+      },getMode:function (canRead, canWrite) {
+        var mode = 0;
+        if (canRead) mode |= 292 | 73;
+        if (canWrite) mode |= 146;
+        return mode;
+      },joinPath:function (parts, forceRelative) {
+        var path = PATH.join.apply(null, parts);
+        if (forceRelative && path[0] == '/') path = path.substr(1);
+        return path;
+      },absolutePath:function (relative, base) {
+        return PATH.resolve(base, relative);
+      },standardizePath:function (path) {
+        return PATH.normalize(path);
+      },findObject:function (path, dontResolveLastLink) {
+        var ret = FS.analyzePath(path, dontResolveLastLink);
+        if (ret.exists) {
+          return ret.object;
+        } else {
+          ___setErrNo(ret.error);
+          return null;
+        }
+      },analyzePath:function (path, dontResolveLastLink) {
+        // operate from within the context of the symlink's target
+        try {
+          var lookup = FS.lookupPath(path, { follow: !dontResolveLastLink });
+          path = lookup.path;
+        } catch (e) {
+        }
+        var ret = {
+          isRoot: false, exists: false, error: 0, name: null, path: null, object: null,
+          parentExists: false, parentPath: null, parentObject: null
+        };
+        try {
+          var lookup = FS.lookupPath(path, { parent: true });
+          ret.parentExists = true;
+          ret.parentPath = lookup.path;
+          ret.parentObject = lookup.node;
+          ret.name = PATH.basename(path);
+          lookup = FS.lookupPath(path, { follow: !dontResolveLastLink });
+          ret.exists = true;
+          ret.path = lookup.path;
+          ret.object = lookup.node;
+          ret.name = lookup.node.name;
+          ret.isRoot = lookup.path === '/';
+        } catch (e) {
+          ret.error = e.errno;
+        };
+        return ret;
+      },createFolder:function (parent, name, canRead, canWrite) {
+        var path = PATH.join2(typeof parent === 'string' ? parent : FS.getPath(parent), name);
+        var mode = FS.getMode(canRead, canWrite);
+        return FS.mkdir(path, mode);
+      },createPath:function (parent, path, canRead, canWrite) {
+        parent = typeof parent === 'string' ? parent : FS.getPath(parent);
+        var parts = path.split('/').reverse();
+        while (parts.length) {
+          var part = parts.pop();
+          if (!part) continue;
+          var current = PATH.join2(parent, part);
+          try {
+            FS.mkdir(current);
+          } catch (e) {
+            // ignore EEXIST
+          }
+          parent = current;
+        }
+        return current;
+      },createFile:function (parent, name, properties, canRead, canWrite) {
+        var path = PATH.join2(typeof parent === 'string' ? parent : FS.getPath(parent), name);
+        var mode = FS.getMode(canRead, canWrite);
+        return FS.create(path, mode);
+      },createDataFile:function (parent, name, data, canRead, canWrite, canOwn) {
+        var path = name ? PATH.join2(typeof parent === 'string' ? parent : FS.getPath(parent), name) : parent;
+        var mode = FS.getMode(canRead, canWrite);
+        var node = FS.create(path, mode);
+        if (data) {
+          if (typeof data === 'string') {
+            var arr = new Array(data.length);
+            for (var i = 0, len = data.length; i < len; ++i) arr[i] = data.charCodeAt(i);
+            data = arr;
+          }
+          // make sure we can write to the file
+          FS.chmod(node, mode | 146);
+          var stream = FS.open(node, 'w');
+          FS.write(stream, data, 0, data.length, 0, canOwn);
+          FS.close(stream);
+          FS.chmod(node, mode);
+        }
+        return node;
+      },createDevice:function (parent, name, input, output) {
+        var path = PATH.join2(typeof parent === 'string' ? parent : FS.getPath(parent), name);
+        var mode = FS.getMode(!!input, !!output);
+        if (!FS.createDevice.major) FS.createDevice.major = 64;
+        var dev = FS.makedev(FS.createDevice.major++, 0);
+        // Create a fake device that a set of stream ops to emulate
+        // the old behavior.
+        FS.registerDevice(dev, {
+          open: function(stream) {
+            stream.seekable = false;
+          },
+          close: function(stream) {
+            // flush any pending line data
+            if (output && output.buffer && output.buffer.length) {
+              output(10);
+            }
+          },
+          read: function(stream, buffer, offset, length, pos /* ignored */) {
+            var bytesRead = 0;
+            for (var i = 0; i < length; i++) {
+              var result;
+              try {
+                result = input();
+              } catch (e) {
+                throw new FS.ErrnoError(5);
+              }
+              if (result === undefined && bytesRead === 0) {
+                throw new FS.ErrnoError(11);
+              }
+              if (result === null || result === undefined) break;
+              bytesRead++;
+              buffer[offset+i] = result;
+            }
+            if (bytesRead) {
+              stream.node.timestamp = Date.now();
+            }
+            return bytesRead;
+          },
+          write: function(stream, buffer, offset, length, pos) {
+            for (var i = 0; i < length; i++) {
+              try {
+                output(buffer[offset+i]);
+              } catch (e) {
+                throw new FS.ErrnoError(5);
+              }
+            }
+            if (length) {
+              stream.node.timestamp = Date.now();
+            }
+            return i;
+          }
+        });
+        return FS.mkdev(path, mode, dev);
+      },createLink:function (parent, name, target, canRead, canWrite) {
+        var path = PATH.join2(typeof parent === 'string' ? parent : FS.getPath(parent), name);
+        return FS.symlink(target, path);
+      },forceLoadFile:function (obj) {
+        if (obj.isDevice || obj.isFolder || obj.link || obj.contents) return true;
+        var success = true;
+        if (typeof XMLHttpRequest !== 'undefined') {
+          throw new Error("Lazy loading should have been performed (contents set) in createLazyFile, but it was not. Lazy loading only works in web workers. Use --embed-file or --preload-file in emcc on the main thread.");
+        } else if (Module['read']) {
+          // Command-line.
+          try {
+            // WARNING: Can't read binary files in V8's d8 or tracemonkey's js, as
+            //          read() will try to parse UTF8.
+            obj.contents = intArrayFromString(Module['read'](obj.url), true);
+            obj.usedBytes = obj.contents.length;
+          } catch (e) {
+            success = false;
+          }
+        } else {
+          throw new Error('Cannot load without read() or XMLHttpRequest.');
+        }
+        if (!success) ___setErrNo(5);
+        return success;
+      },createLazyFile:function (parent, name, url, canRead, canWrite) {
+        // Lazy chunked Uint8Array (implements get and length from Uint8Array). Actual getting is abstracted away for eventual reuse.
+        function LazyUint8Array() {
+          this.lengthKnown = false;
+          this.chunks = []; // Loaded chunks. Index is the chunk number
+        }
+        LazyUint8Array.prototype.get = function LazyUint8Array_get(idx) {
+          if (idx > this.length-1 || idx < 0) {
+            return undefined;
+          }
+          var chunkOffset = idx % this.chunkSize;
+          var chunkNum = (idx / this.chunkSize)|0;
+          return this.getter(chunkNum)[chunkOffset];
+        }
+        LazyUint8Array.prototype.setDataGetter = function LazyUint8Array_setDataGetter(getter) {
+          this.getter = getter;
+        }
+        LazyUint8Array.prototype.cacheLength = function LazyUint8Array_cacheLength() {
+          // Find length
+          var xhr = new XMLHttpRequest();
+          xhr.open('HEAD', url, false);
+          xhr.send(null);
+          if (!(xhr.status >= 200 && xhr.status < 300 || xhr.status === 304)) throw new Error("Couldn't load " + url + ". Status: " + xhr.status);
+          var datalength = Number(xhr.getResponseHeader("Content-length"));
+          var header;
+          var hasByteServing = (header = xhr.getResponseHeader("Accept-Ranges")) && header === "bytes";
+          var usesGzip = (header = xhr.getResponseHeader("Content-Encoding")) && header === "gzip";
+  
+          var chunkSize = 1024*1024; // Chunk size in bytes
+  
+          if (!hasByteServing) chunkSize = datalength;
+  
+          // Function to get a range from the remote URL.
+          var doXHR = (function(from, to) {
+            if (from > to) throw new Error("invalid range (" + from + ", " + to + ") or no bytes requested!");
+            if (to > datalength-1) throw new Error("only " + datalength + " bytes available! programmer error!");
+  
+            // TODO: Use mozResponseArrayBuffer, responseStream, etc. if available.
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url, false);
+            if (datalength !== chunkSize) xhr.setRequestHeader("Range", "bytes=" + from + "-" + to);
+  
+            // Some hints to the browser that we want binary data.
+            if (typeof Uint8Array != 'undefined') xhr.responseType = 'arraybuffer';
+            if (xhr.overrideMimeType) {
+              xhr.overrideMimeType('text/plain; charset=x-user-defined');
+            }
+  
+            xhr.send(null);
+            if (!(xhr.status >= 200 && xhr.status < 300 || xhr.status === 304)) throw new Error("Couldn't load " + url + ". Status: " + xhr.status);
+            if (xhr.response !== undefined) {
+              return new Uint8Array(xhr.response || []);
+            } else {
+              return intArrayFromString(xhr.responseText || '', true);
+            }
+          });
+          var lazyArray = this;
+          lazyArray.setDataGetter(function(chunkNum) {
+            var start = chunkNum * chunkSize;
+            var end = (chunkNum+1) * chunkSize - 1; // including this byte
+            end = Math.min(end, datalength-1); // if datalength-1 is selected, this is the last block
+            if (typeof(lazyArray.chunks[chunkNum]) === "undefined") {
+              lazyArray.chunks[chunkNum] = doXHR(start, end);
+            }
+            if (typeof(lazyArray.chunks[chunkNum]) === "undefined") throw new Error("doXHR failed!");
+            return lazyArray.chunks[chunkNum];
+          });
+  
+          if (usesGzip || !datalength) {
+            // if the server uses gzip or doesn't supply the length, we have to download the whole file to get the (uncompressed) length
+            chunkSize = datalength = 1; // this will force getter(0)/doXHR do download the whole file
+            datalength = this.getter(0).length;
+            chunkSize = datalength;
+            console.log("LazyFiles on gzip forces download of the whole file when length is accessed");
+          }
+  
+          this._length = datalength;
+          this._chunkSize = chunkSize;
+          this.lengthKnown = true;
+        }
+        if (typeof XMLHttpRequest !== 'undefined') {
+          if (!ENVIRONMENT_IS_WORKER) throw 'Cannot do synchronous binary XHRs outside webworkers in modern browsers. Use --embed-file or --preload-file in emcc';
+          var lazyArray = new LazyUint8Array();
+          Object.defineProperties(lazyArray, {
+            length: {
+              get: function() {
+                if(!this.lengthKnown) {
+                  this.cacheLength();
+                }
+                return this._length;
+              }
+            },
+            chunkSize: {
+              get: function() {
+                if(!this.lengthKnown) {
+                  this.cacheLength();
+                }
+                return this._chunkSize;
+              }
+            }
+          });
+  
+          var properties = { isDevice: false, contents: lazyArray };
+        } else {
+          var properties = { isDevice: false, url: url };
+        }
+  
+        var node = FS.createFile(parent, name, properties, canRead, canWrite);
+        // This is a total hack, but I want to get this lazy file code out of the
+        // core of MEMFS. If we want to keep this lazy file concept I feel it should
+        // be its own thin LAZYFS proxying calls to MEMFS.
+        if (properties.contents) {
+          node.contents = properties.contents;
+        } else if (properties.url) {
+          node.contents = null;
+          node.url = properties.url;
+        }
+        // Add a function that defers querying the file size until it is asked the first time.
+        Object.defineProperties(node, {
+          usedBytes: {
+            get: function() { return this.contents.length; }
+          }
+        });
+        // override each stream op with one that tries to force load the lazy file first
+        var stream_ops = {};
+        var keys = Object.keys(node.stream_ops);
+        keys.forEach(function(key) {
+          var fn = node.stream_ops[key];
+          stream_ops[key] = function forceLoadLazyFile() {
+            if (!FS.forceLoadFile(node)) {
+              throw new FS.ErrnoError(5);
+            }
+            return fn.apply(null, arguments);
+          };
+        });
+        // use a custom read function
+        stream_ops.read = function stream_ops_read(stream, buffer, offset, length, position) {
+          if (!FS.forceLoadFile(node)) {
+            throw new FS.ErrnoError(5);
+          }
+          var contents = stream.node.contents;
+          if (position >= contents.length)
+            return 0;
+          var size = Math.min(contents.length - position, length);
+          assert(size >= 0);
+          if (contents.slice) { // normal array
+            for (var i = 0; i < size; i++) {
+              buffer[offset + i] = contents[position + i];
+            }
+          } else {
+            for (var i = 0; i < size; i++) { // LazyUint8Array from sync binary XHR
+              buffer[offset + i] = contents.get(position + i);
+            }
+          }
+          return size;
+        };
+        node.stream_ops = stream_ops;
+        return node;
+      },createPreloadedFile:function (parent, name, url, canRead, canWrite, onload, onerror, dontCreateFile, canOwn, preFinish) {
+        Browser.init(); // XXX perhaps this method should move onto Browser?
+        // TODO we should allow people to just pass in a complete filename instead
+        // of parent and name being that we just join them anyways
+        var fullname = name ? PATH.resolve(PATH.join2(parent, name)) : parent;
+        var dep = getUniqueRunDependency('cp ' + fullname); // might have several active requests for the same fullname
+        function processData(byteArray) {
+          function finish(byteArray) {
+            if (preFinish) preFinish();
+            if (!dontCreateFile) {
+              FS.createDataFile(parent, name, byteArray, canRead, canWrite, canOwn);
+            }
+            if (onload) onload();
+            removeRunDependency(dep);
+          }
+          var handled = false;
+          Module['preloadPlugins'].forEach(function(plugin) {
+            if (handled) return;
+            if (plugin['canHandle'](fullname)) {
+              plugin['handle'](byteArray, fullname, finish, function() {
+                if (onerror) onerror();
+                removeRunDependency(dep);
+              });
+              handled = true;
+            }
+          });
+          if (!handled) finish(byteArray);
+        }
+        addRunDependency(dep);
+        if (typeof url == 'string') {
+          Browser.asyncLoad(url, function(byteArray) {
+            processData(byteArray);
+          }, onerror);
+        } else {
+          processData(url);
+        }
+      },indexedDB:function () {
+        return window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
+      },DB_NAME:function () {
+        return 'EM_FS_' + window.location.pathname;
+      },DB_VERSION:20,DB_STORE_NAME:"FILE_DATA",saveFilesToDB:function (paths, onload, onerror) {
+        onload = onload || function(){};
+        onerror = onerror || function(){};
+        var indexedDB = FS.indexedDB();
+        try {
+          var openRequest = indexedDB.open(FS.DB_NAME(), FS.DB_VERSION);
+        } catch (e) {
+          return onerror(e);
+        }
+        openRequest.onupgradeneeded = function openRequest_onupgradeneeded() {
+          console.log('creating db');
+          var db = openRequest.result;
+          db.createObjectStore(FS.DB_STORE_NAME);
+        };
+        openRequest.onsuccess = function openRequest_onsuccess() {
+          var db = openRequest.result;
+          var transaction = db.transaction([FS.DB_STORE_NAME], 'readwrite');
+          var files = transaction.objectStore(FS.DB_STORE_NAME);
+          var ok = 0, fail = 0, total = paths.length;
+          function finish() {
+            if (fail == 0) onload(); else onerror();
+          }
+          paths.forEach(function(path) {
+            var putRequest = files.put(FS.analyzePath(path).object.contents, path);
+            putRequest.onsuccess = function putRequest_onsuccess() { ok++; if (ok + fail == total) finish() };
+            putRequest.onerror = function putRequest_onerror() { fail++; if (ok + fail == total) finish() };
+          });
+          transaction.onerror = onerror;
+        };
+        openRequest.onerror = onerror;
+      },loadFilesFromDB:function (paths, onload, onerror) {
+        onload = onload || function(){};
+        onerror = onerror || function(){};
+        var indexedDB = FS.indexedDB();
+        try {
+          var openRequest = indexedDB.open(FS.DB_NAME(), FS.DB_VERSION);
+        } catch (e) {
+          return onerror(e);
+        }
+        openRequest.onupgradeneeded = onerror; // no database to load from
+        openRequest.onsuccess = function openRequest_onsuccess() {
+          var db = openRequest.result;
+          try {
+            var transaction = db.transaction([FS.DB_STORE_NAME], 'readonly');
+          } catch(e) {
+            onerror(e);
+            return;
+          }
+          var files = transaction.objectStore(FS.DB_STORE_NAME);
+          var ok = 0, fail = 0, total = paths.length;
+          function finish() {
+            if (fail == 0) onload(); else onerror();
+          }
+          paths.forEach(function(path) {
+            var getRequest = files.get(path);
+            getRequest.onsuccess = function getRequest_onsuccess() {
+              if (FS.analyzePath(path).exists) {
+                FS.unlink(path);
+              }
+              FS.createDataFile(PATH.dirname(path), PATH.basename(path), getRequest.result, true, true, true);
+              ok++;
+              if (ok + fail == total) finish();
+            };
+            getRequest.onerror = function getRequest_onerror() { fail++; if (ok + fail == total) finish() };
+          });
+          transaction.onerror = onerror;
+        };
+        openRequest.onerror = onerror;
+      }};var SYSCALLS={DEFAULT_POLLMASK:5,mappings:{},umask:511,calculateAt:function (dirfd, path) {
+        if (path[0] !== '/') {
+          // relative path
+          var dir;
+          if (dirfd === -100) {
+            dir = FS.cwd();
+          } else {
+            var dirstream = FS.getStream(dirfd);
+            if (!dirstream) throw new FS.ErrnoError(ERRNO_CODES.EBADF);
+            dir = dirstream.path;
+          }
+          path = PATH.join2(dir, path);
+        }
+        return path;
+      },doStat:function (func, path, buf) {
+        try {
+          var stat = func(path);
+        } catch (e) {
+          if (e && e.node && PATH.normalize(path) !== PATH.normalize(FS.getPath(e.node))) {
+            // an error occurred while trying to look up the path; we should just report ENOTDIR
+            return -ERRNO_CODES.ENOTDIR;
+          }
+          throw e;
+        }
+        HEAP32[((buf)>>2)]=stat.dev;
+        HEAP32[(((buf)+(4))>>2)]=0;
+        HEAP32[(((buf)+(8))>>2)]=stat.ino;
+        HEAP32[(((buf)+(12))>>2)]=stat.mode;
+        HEAP32[(((buf)+(16))>>2)]=stat.nlink;
+        HEAP32[(((buf)+(20))>>2)]=stat.uid;
+        HEAP32[(((buf)+(24))>>2)]=stat.gid;
+        HEAP32[(((buf)+(28))>>2)]=stat.rdev;
+        HEAP32[(((buf)+(32))>>2)]=0;
+        HEAP32[(((buf)+(36))>>2)]=stat.size;
+        HEAP32[(((buf)+(40))>>2)]=4096;
+        HEAP32[(((buf)+(44))>>2)]=stat.blocks;
+        HEAP32[(((buf)+(48))>>2)]=(stat.atime.getTime() / 1000)|0;
+        HEAP32[(((buf)+(52))>>2)]=0;
+        HEAP32[(((buf)+(56))>>2)]=(stat.mtime.getTime() / 1000)|0;
+        HEAP32[(((buf)+(60))>>2)]=0;
+        HEAP32[(((buf)+(64))>>2)]=(stat.ctime.getTime() / 1000)|0;
+        HEAP32[(((buf)+(68))>>2)]=0;
+        HEAP32[(((buf)+(72))>>2)]=stat.ino;
+        return 0;
+      },doMsync:function (addr, stream, len, flags) {
+        var buffer = new Uint8Array(HEAPU8.subarray(addr, addr + len));
+        FS.msync(stream, buffer, 0, len, flags);
+      },doMkdir:function (path, mode) {
+        // remove a trailing slash, if one - /a/b/ has basename of '', but
+        // we want to create b in the context of this function
+        path = PATH.normalize(path);
+        if (path[path.length-1] === '/') path = path.substr(0, path.length-1);
+        FS.mkdir(path, mode, 0);
+        return 0;
+      },doMknod:function (path, mode, dev) {
+        // we don't want this in the JS API as it uses mknod to create all nodes.
+        switch (mode & 61440) {
+          case 32768:
+          case 8192:
+          case 24576:
+          case 4096:
+          case 49152:
+            break;
+          default: return -ERRNO_CODES.EINVAL;
+        }
+        FS.mknod(path, mode, dev);
+        return 0;
+      },doReadlink:function (path, buf, bufsize) {
+        if (bufsize <= 0) return -ERRNO_CODES.EINVAL;
+        var ret = FS.readlink(path);
+  
+        var len = Math.min(bufsize, lengthBytesUTF8(ret));
+        var endChar = HEAP8[buf+len];
+        stringToUTF8(ret, buf, bufsize+1);
+        // readlink is one of the rare functions that write out a C string, but does never append a null to the output buffer(!)
+        // stringToUTF8() always appends a null byte, so restore the character under the null byte after the write.
+        HEAP8[buf+len] = endChar;
+  
+        return len;
+      },doAccess:function (path, amode) {
+        if (amode & ~7) {
+          // need a valid mode
+          return -ERRNO_CODES.EINVAL;
+        }
+        var node;
+        var lookup = FS.lookupPath(path, { follow: true });
+        node = lookup.node;
+        var perms = '';
+        if (amode & 4) perms += 'r';
+        if (amode & 2) perms += 'w';
+        if (amode & 1) perms += 'x';
+        if (perms /* otherwise, they've just passed F_OK */ && FS.nodePermissions(node, perms)) {
+          return -ERRNO_CODES.EACCES;
+        }
+        return 0;
+      },doDup:function (path, flags, suggestFD) {
+        var suggest = FS.getStream(suggestFD);
+        if (suggest) FS.close(suggest);
+        return FS.open(path, flags, 0, suggestFD, suggestFD).fd;
+      },doReadv:function (stream, iov, iovcnt, offset) {
+        var ret = 0;
+        for (var i = 0; i < iovcnt; i++) {
+          var ptr = HEAP32[(((iov)+(i*8))>>2)];
+          var len = HEAP32[(((iov)+(i*8 + 4))>>2)];
+          var curr = FS.read(stream, HEAP8,ptr, len, offset);
+          if (curr < 0) return -1;
+          ret += curr;
+          if (curr < len) break; // nothing more to read
+        }
+        return ret;
+      },doWritev:function (stream, iov, iovcnt, offset) {
+        var ret = 0;
+        for (var i = 0; i < iovcnt; i++) {
+          var ptr = HEAP32[(((iov)+(i*8))>>2)];
+          var len = HEAP32[(((iov)+(i*8 + 4))>>2)];
+          var curr = FS.write(stream, HEAP8,ptr, len, offset);
+          if (curr < 0) return -1;
+          ret += curr;
+        }
+        return ret;
       },varargs:0,get:function (varargs) {
         SYSCALLS.varargs += 4;
         var ret = HEAP32[(((SYSCALLS.varargs)-(4))>>2)];
@@ -1977,6 +5064,21 @@ function copyTempDouble(ptr) {
       },getStr:function () {
         var ret = UTF8ToString(SYSCALLS.get());
         return ret;
+      },getStreamFromFD:function () {
+        var stream = FS.getStream(SYSCALLS.get());
+        if (!stream) throw new FS.ErrnoError(ERRNO_CODES.EBADF);
+        return stream;
+      },getSocketFromFD:function () {
+        var socket = SOCKFS.getSocket(SYSCALLS.get());
+        if (!socket) throw new FS.ErrnoError(ERRNO_CODES.EBADF);
+        return socket;
+      },getSocketAddress:function (allowNull) {
+        var addrp = SYSCALLS.get(), addrlen = SYSCALLS.get();
+        if (allowNull && addrp === 0) return null;
+        var info = __read_sockaddr(addrp, addrlen);
+        if (info.errno) throw new FS.ErrnoError(info.errno);
+        info.addr = DNS.lookup_addr(info.addr) || info.addr;
+        return info;
       },get64:function () {
         var low = SYSCALLS.get(), high = SYSCALLS.get();
         if (low >= 0) assert(high === 0);
@@ -2001,30 +5103,95 @@ function copyTempDouble(ptr) {
   }
   }
 
-  
-  function flush_NO_FILESYSTEM() {
-      // flush anything remaining in the buffers during shutdown
-      var fflush = Module["_fflush"];
-      if (fflush) fflush(0);
-      var buffers = SYSCALLS.buffers;
-      if (buffers[1].length) SYSCALLS.printChar(1, 10);
-      if (buffers[2].length) SYSCALLS.printChar(2, 10);
-    }function ___syscall146(which, varargs) {
+  function ___syscall146(which, varargs) {
   if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(2, 1, which, varargs);SYSCALLS.varargs = varargs;
   try {
    // writev
-      // hack to support printf in FILESYSTEM=0
-      var stream = SYSCALLS.get(), iov = SYSCALLS.get(), iovcnt = SYSCALLS.get();
-      var ret = 0;
-      for (var i = 0; i < iovcnt; i++) {
-        var ptr = HEAP32[(((iov)+(i*8))>>2)];
-        var len = HEAP32[(((iov)+(i*8 + 4))>>2)];
-        for (var j = 0; j < len; j++) {
-          SYSCALLS.printChar(stream, HEAPU8[ptr+j]);
+      var stream = SYSCALLS.getStreamFromFD(), iov = SYSCALLS.get(), iovcnt = SYSCALLS.get();
+      return SYSCALLS.doWritev(stream, iov, iovcnt);
+    } catch (e) {
+    if (typeof FS === 'undefined' || !(e instanceof FS.ErrnoError)) abort(e);
+    return -e.errno;
+  }
+  }
+
+  function ___syscall221(which, varargs) {
+  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(3, 1, which, varargs);SYSCALLS.varargs = varargs;
+  try {
+   // fcntl64
+      var stream = SYSCALLS.getStreamFromFD(), cmd = SYSCALLS.get();
+      switch (cmd) {
+        case 0: {
+          var arg = SYSCALLS.get();
+          if (arg < 0) {
+            return -ERRNO_CODES.EINVAL;
+          }
+          var newStream;
+          newStream = FS.open(stream.path, stream.flags, 0, arg);
+          return newStream.fd;
         }
-        ret += len;
+        case 1:
+        case 2:
+          return 0;  // FD_CLOEXEC makes no sense for a single process.
+        case 3:
+          return stream.flags;
+        case 4: {
+          var arg = SYSCALLS.get();
+          stream.flags |= arg;
+          return 0;
+        }
+        case 12:
+        /* case 12: Currently in musl F_GETLK64 has same value as F_GETLK, so omitted to avoid duplicate case blocks. If that changes, uncomment this */ {
+          
+          var arg = SYSCALLS.get();
+          var offset = 0;
+          // We're always unlocked.
+          HEAP16[(((arg)+(offset))>>1)]=2;
+          return 0;
+        }
+        case 13:
+        case 14:
+        /* case 13: Currently in musl F_SETLK64 has same value as F_SETLK, so omitted to avoid duplicate case blocks. If that changes, uncomment this */
+        /* case 14: Currently in musl F_SETLKW64 has same value as F_SETLKW, so omitted to avoid duplicate case blocks. If that changes, uncomment this */
+          
+          
+          return 0; // Pretend that the locking is successful.
+        case 16:
+        case 8:
+          return -ERRNO_CODES.EINVAL; // These are for sockets. We don't have them fully implemented yet.
+        case 9:
+          // musl trusts getown return values, due to a bug where they must be, as they overlap with errors. just return -1 here, so fnctl() returns that, and we set errno ourselves.
+          ___setErrNo(ERRNO_CODES.EINVAL);
+          return -1;
+        default: {
+          return -ERRNO_CODES.EINVAL;
+        }
       }
-      return ret;
+    } catch (e) {
+    if (typeof FS === 'undefined' || !(e instanceof FS.ErrnoError)) abort(e);
+    return -e.errno;
+  }
+  }
+
+  function ___syscall3(which, varargs) {
+  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(4, 1, which, varargs);SYSCALLS.varargs = varargs;
+  try {
+   // read
+      var stream = SYSCALLS.getStreamFromFD(), buf = SYSCALLS.get(), count = SYSCALLS.get();
+      return FS.read(stream, HEAP8,buf, count);
+    } catch (e) {
+    if (typeof FS === 'undefined' || !(e instanceof FS.ErrnoError)) abort(e);
+    return -e.errno;
+  }
+  }
+
+  function ___syscall5(which, varargs) {
+  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(5, 1, which, varargs);SYSCALLS.varargs = varargs;
+  try {
+   // open
+      var pathname = SYSCALLS.getStr(), flags = SYSCALLS.get(), mode = SYSCALLS.get() // optional TODO
+      var stream = FS.open(pathname, flags, mode);
+      return stream.fd;
     } catch (e) {
     if (typeof FS === 'undefined' || !(e instanceof FS.ErrnoError)) abort(e);
     return -e.errno;
@@ -2032,10 +5199,54 @@ function copyTempDouble(ptr) {
   }
 
   function ___syscall54(which, varargs) {
-  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(3, 1, which, varargs);SYSCALLS.varargs = varargs;
+  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(6, 1, which, varargs);SYSCALLS.varargs = varargs;
   try {
    // ioctl
-      return 0;
+      var stream = SYSCALLS.getStreamFromFD(), op = SYSCALLS.get();
+      switch (op) {
+        case 21509:
+        case 21505: {
+          if (!stream.tty) return -ERRNO_CODES.ENOTTY;
+          return 0;
+        }
+        case 21510:
+        case 21511:
+        case 21512:
+        case 21506:
+        case 21507:
+        case 21508: {
+          if (!stream.tty) return -ERRNO_CODES.ENOTTY;
+          return 0; // no-op, not actually adjusting terminal settings
+        }
+        case 21519: {
+          if (!stream.tty) return -ERRNO_CODES.ENOTTY;
+          var argp = SYSCALLS.get();
+          HEAP32[((argp)>>2)]=0;
+          return 0;
+        }
+        case 21520: {
+          if (!stream.tty) return -ERRNO_CODES.ENOTTY;
+          return -ERRNO_CODES.EINVAL; // not supported
+        }
+        case 21531: {
+          var argp = SYSCALLS.get();
+          return FS.ioctl(stream, op, argp);
+        }
+        case 21523: {
+          // TODO: in theory we should write to the winsize struct that gets
+          // passed in, but for now musl doesn't read anything on it
+          if (!stream.tty) return -ERRNO_CODES.ENOTTY;
+          return 0;
+        }
+        case 21524: {
+          // TODO: technically, this ioctl call should change the window size.
+          // but, since emscripten doesn't have any concept of a terminal window
+          // yet, we'll just silently throw it away as we do TIOCGWINSZ
+          if (!stream.tty) return -ERRNO_CODES.ENOTTY;
+          return 0;
+        }
+        default: abort('bad ioctl syscall ' + op);
+      }
     } catch (e) {
     if (typeof FS === 'undefined' || !(e instanceof FS.ErrnoError)) abort(e);
     return -e.errno;
@@ -2043,7 +5254,7 @@ function copyTempDouble(ptr) {
   }
 
   function ___syscall6(which, varargs) {
-  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(4, 1, which, varargs);SYSCALLS.varargs = varargs;
+  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(7, 1, which, varargs);SYSCALLS.varargs = varargs;
   try {
    // close
       var stream = SYSCALLS.getStreamFromFD();
@@ -2058,13 +5269,22 @@ function copyTempDouble(ptr) {
   function ___unlock() {}
 
   function __js_xhr_get_file_size(loadPtr, url) {
-          console.log("_js_xhr_get_file_size in!");
+          //console.log("_js_xhr_get_file_size in!");
           return JS_XHRGetFileSize(loadPtr, UTF8ToString(url));
       }
 
   function __js_xhr_load_file(loadPtr, url, start, end) {
           return JS_XHRGetFile(loadPtr, UTF8ToString(url), UTF8ToString(start), UTF8ToString(end));
       }
+
+  function _abort() {
+      Module['abort']();
+    }
+
+  function _clock() {
+      if (_clock.start === undefined) _clock.start = Date.now();
+      return ((Date.now() - _clock.start) * (1000000 / 1000))|0;
+    }
 
   var _emscripten_asm_const_int=true;
 
@@ -2073,7 +5293,7 @@ function copyTempDouble(ptr) {
     } 
 
   
-  var __main_thread_futex_wait_address; if (ENVIRONMENT_IS_PTHREAD) __main_thread_futex_wait_address = PthreadWorkerInit.__main_thread_futex_wait_address; else PthreadWorkerInit.__main_thread_futex_wait_address = __main_thread_futex_wait_address = 9472;function _emscripten_futex_wait(addr, val, timeout) {
+  var __main_thread_futex_wait_address; if (ENVIRONMENT_IS_PTHREAD) __main_thread_futex_wait_address = PthreadWorkerInit.__main_thread_futex_wait_address; else PthreadWorkerInit.__main_thread_futex_wait_address = __main_thread_futex_wait_address = 1083072;function _emscripten_futex_wait(addr, val, timeout) {
       if (addr <= 0 || addr > HEAP8.length || addr&3 != 0) return -22;
   //    dump('futex_wait addr:' + addr + ' by thread: ' + _pthread_self() + (ENVIRONMENT_IS_PTHREAD?'(pthread)':'') + '\n');
       if (ENVIRONMENT_IS_WORKER) {
@@ -2418,7 +5638,7 @@ function copyTempDouble(ptr) {
     }
   
   function _emscripten_set_canvas_element_size_main_thread(target, width, height) {
-  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(5, 1, target, width, height); return _emscripten_set_canvas_element_size_calling_thread(target, width, height); }function _emscripten_set_canvas_element_size(target, width, height) {
+  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(8, 1, target, width, height); return _emscripten_set_canvas_element_size_calling_thread(target, width, height); }function _emscripten_set_canvas_element_size(target, width, height) {
       var canvas = __findCanvasEventTarget(target);
       if (canvas) return _emscripten_set_canvas_element_size_calling_thread(target, width, height);
       else return _emscripten_set_canvas_element_size_main_thread(target, width, height);
@@ -2436,6 +5656,9 @@ function copyTempDouble(ptr) {
     switch (which) {
       case 140: return ___syscall140(which, varargs);
       case 146: return ___syscall146(which, varargs);
+      case 221: return ___syscall221(which, varargs);
+      case 3: return ___syscall3(which, varargs);
+      case 5: return ___syscall5(which, varargs);
       case 54: return ___syscall54(which, varargs);
       case 6: return ___syscall6(which, varargs);
       default: throw "surprising proxied syscall: " + which;
@@ -2445,6 +5668,133 @@ function copyTempDouble(ptr) {
   function _emscripten_webgl_create_context() {
   err('missing function: emscripten_webgl_create_context'); abort(-1);
   }
+
+  var _fabs=Math_abs;
+
+  function _getenv(name) {
+  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(9, 1, name);
+      // char *getenv(const char *name);
+      // http://pubs.opengroup.org/onlinepubs/009695399/functions/getenv.html
+      if (name === 0) return 0;
+      name = UTF8ToString(name);
+      if (!ENV.hasOwnProperty(name)) return 0;
+  
+      if (_getenv.ret) _free(_getenv.ret);
+      _getenv.ret = allocateUTF8(ENV[name]);
+      return _getenv.ret;
+    }
+
+  function _gettimeofday(ptr) {
+      var now = Date.now();
+      HEAP32[((ptr)>>2)]=(now/1000)|0; // seconds
+      HEAP32[(((ptr)+(4))>>2)]=((now % 1000)*1000)|0; // microseconds
+      return 0;
+    }
+
+  
+  var ___tm_timezone; if (ENVIRONMENT_IS_PTHREAD) ___tm_timezone = PthreadWorkerInit.___tm_timezone; else PthreadWorkerInit.___tm_timezone = ___tm_timezone = (stringToUTF8("GMT", 1082192, 4), 1082192);function _gmtime_r(time, tmPtr) {
+      var date = new Date(HEAP32[((time)>>2)]*1000);
+      HEAP32[((tmPtr)>>2)]=date.getUTCSeconds();
+      HEAP32[(((tmPtr)+(4))>>2)]=date.getUTCMinutes();
+      HEAP32[(((tmPtr)+(8))>>2)]=date.getUTCHours();
+      HEAP32[(((tmPtr)+(12))>>2)]=date.getUTCDate();
+      HEAP32[(((tmPtr)+(16))>>2)]=date.getUTCMonth();
+      HEAP32[(((tmPtr)+(20))>>2)]=date.getUTCFullYear()-1900;
+      HEAP32[(((tmPtr)+(24))>>2)]=date.getUTCDay();
+      HEAP32[(((tmPtr)+(36))>>2)]=0;
+      HEAP32[(((tmPtr)+(32))>>2)]=0;
+      var start = Date.UTC(date.getUTCFullYear(), 0, 1, 0, 0, 0, 0);
+      var yday = ((date.getTime() - start) / (1000 * 60 * 60 * 24))|0;
+      HEAP32[(((tmPtr)+(28))>>2)]=yday;
+      HEAP32[(((tmPtr)+(40))>>2)]=___tm_timezone;
+  
+      return tmPtr;
+    }
+
+   
+
+   
+
+  
+  function _llvm_exp2_f32(x) {
+      return Math.pow(2, x);
+    }function _llvm_exp2_f64(a0
+  /*``*/) {
+  return _llvm_exp2_f32(a0);
+  }
+
+  function _llvm_log2_f32(x) {
+      return Math.log(x) / Math.LN2; // TODO: Math.log2, when browser support is there
+    }
+
+  
+  var _Math_floor=undefined;
+  
+  var _Math_ceil=undefined; 
+
+  var _llvm_trunc_f64=Math_trunc;
+
+  
+  function _tzset() {
+  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(10, 1);
+      // TODO: Use (malleable) environment variables instead of system settings.
+      if (_tzset.called) return;
+      _tzset.called = true;
+  
+      // timezone is specified as seconds west of UTC ("The external variable
+      // `timezone` shall be set to the difference, in seconds, between
+      // Coordinated Universal Time (UTC) and local standard time."), the same
+      // as returned by getTimezoneOffset().
+      // See http://pubs.opengroup.org/onlinepubs/009695399/functions/tzset.html
+      HEAP32[((__get_timezone())>>2)]=(new Date()).getTimezoneOffset() * 60;
+  
+      var winter = new Date(2000, 0, 1);
+      var summer = new Date(2000, 6, 1);
+      HEAP32[((__get_daylight())>>2)]=Number(winter.getTimezoneOffset() != summer.getTimezoneOffset());
+  
+      function extractZone(date) {
+        var match = date.toTimeString().match(/\(([A-Za-z ]+)\)$/);
+        return match ? match[1] : "GMT";
+      };
+      var winterName = extractZone(winter);
+      var summerName = extractZone(summer);
+      var winterNamePtr = allocate(intArrayFromString(winterName), 'i8', ALLOC_NORMAL);
+      var summerNamePtr = allocate(intArrayFromString(summerName), 'i8', ALLOC_NORMAL);
+      if (summer.getTimezoneOffset() < winter.getTimezoneOffset()) {
+        // Northern hemisphere
+        HEAP32[((__get_tzname())>>2)]=winterNamePtr;
+        HEAP32[(((__get_tzname())+(4))>>2)]=summerNamePtr;
+      } else {
+        HEAP32[((__get_tzname())>>2)]=summerNamePtr;
+        HEAP32[(((__get_tzname())+(4))>>2)]=winterNamePtr;
+      }
+    }function _localtime_r(time, tmPtr) {
+      _tzset();
+      var date = new Date(HEAP32[((time)>>2)]*1000);
+      HEAP32[((tmPtr)>>2)]=date.getSeconds();
+      HEAP32[(((tmPtr)+(4))>>2)]=date.getMinutes();
+      HEAP32[(((tmPtr)+(8))>>2)]=date.getHours();
+      HEAP32[(((tmPtr)+(12))>>2)]=date.getDate();
+      HEAP32[(((tmPtr)+(16))>>2)]=date.getMonth();
+      HEAP32[(((tmPtr)+(20))>>2)]=date.getFullYear()-1900;
+      HEAP32[(((tmPtr)+(24))>>2)]=date.getDay();
+  
+      var start = new Date(date.getFullYear(), 0, 1);
+      var yday = ((date.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))|0;
+      HEAP32[(((tmPtr)+(28))>>2)]=yday;
+      HEAP32[(((tmPtr)+(36))>>2)]=-(date.getTimezoneOffset() * 60);
+  
+      // Attention: DST is in December in South, and some regions don't have DST at all.
+      var summerOffset = new Date(2000, 6, 1).getTimezoneOffset();
+      var winterOffset = start.getTimezoneOffset();
+      var dst = (summerOffset != winterOffset && date.getTimezoneOffset() == Math.min(winterOffset, summerOffset))|0;
+      HEAP32[(((tmPtr)+(32))>>2)]=dst;
+  
+      var zonePtr = HEAP32[(((__get_tzname())+(dst ? 4 : 0))>>2)];
+      HEAP32[(((tmPtr)+(40))>>2)]=zonePtr;
+  
+      return tmPtr;
+    }
 
   
   function _emscripten_memcpy_big(dest, src, num) {
@@ -2456,6 +5806,59 @@ function copyTempDouble(ptr) {
   var _Int32Array=undefined; 
 
    
+
+   
+
+  function _mktime(tmPtr) {
+      _tzset();
+      var date = new Date(HEAP32[(((tmPtr)+(20))>>2)] + 1900,
+                          HEAP32[(((tmPtr)+(16))>>2)],
+                          HEAP32[(((tmPtr)+(12))>>2)],
+                          HEAP32[(((tmPtr)+(8))>>2)],
+                          HEAP32[(((tmPtr)+(4))>>2)],
+                          HEAP32[((tmPtr)>>2)],
+                          0);
+  
+      // There's an ambiguous hour when the time goes back; the tm_isdst field is
+      // used to disambiguate it.  Date() basically guesses, so we fix it up if it
+      // guessed wrong, or fill in tm_isdst with the guess if it's -1.
+      var dst = HEAP32[(((tmPtr)+(32))>>2)];
+      var guessedOffset = date.getTimezoneOffset();
+      var start = new Date(date.getFullYear(), 0, 1);
+      var summerOffset = new Date(2000, 6, 1).getTimezoneOffset();
+      var winterOffset = start.getTimezoneOffset();
+      var dstOffset = Math.min(winterOffset, summerOffset); // DST is in December in South
+      if (dst < 0) {
+        // Attention: some regions don't have DST at all.
+        HEAP32[(((tmPtr)+(32))>>2)]=Number(summerOffset != winterOffset && dstOffset == guessedOffset);
+      } else if ((dst > 0) != (dstOffset == guessedOffset)) {
+        var nonDstOffset = Math.max(winterOffset, summerOffset);
+        var trueOffset = dst > 0 ? dstOffset : nonDstOffset;
+        // Don't try setMinutes(date.getMinutes() + ...) -- it's messed up.
+        date.setTime(date.getTime() + (trueOffset - guessedOffset)*60000);
+      }
+  
+      HEAP32[(((tmPtr)+(24))>>2)]=date.getDay();
+      var yday = ((date.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))|0;
+      HEAP32[(((tmPtr)+(28))>>2)]=yday;
+  
+      return (date.getTime() / 1000)|0;
+    }
+
+  function _pthread_cleanup_pop(execute) {
+      var routine = PThread.exitHandlers.pop();
+      if (execute) routine();
+    }
+
+  function _pthread_cleanup_push(routine, arg) {
+      if (PThread.exitHandlers === null) {
+        PThread.exitHandlers = [];
+        if (!ENVIRONMENT_IS_PTHREAD) {
+          __ATEXIT__.push(function() { PThread.runExitHandlers(); });
+        }
+      }
+      PThread.exitHandlers.push(function() { dynCall_vi(routine, arg) });
+    }
 
   
   function __spawn_thread(threadParams) {
@@ -2730,7 +6133,159 @@ function copyTempDouble(ptr) {
     }
 
 
+  
+    
+
    
+
+  function _sysconf(name) {
+  if (ENVIRONMENT_IS_PTHREAD) return _emscripten_proxy_to_main_thread_js(11, 1, name);
+      // long sysconf(int name);
+      // http://pubs.opengroup.org/onlinepubs/009695399/functions/sysconf.html
+      switch(name) {
+        case 30: return PAGE_SIZE;
+        case 85:
+          var maxHeapSize = 2*1024*1024*1024 - 65536;
+          maxHeapSize = HEAPU8.length;
+          return maxHeapSize / PAGE_SIZE;
+        case 132:
+        case 133:
+        case 12:
+        case 137:
+        case 138:
+        case 15:
+        case 235:
+        case 16:
+        case 17:
+        case 18:
+        case 19:
+        case 20:
+        case 149:
+        case 13:
+        case 10:
+        case 236:
+        case 153:
+        case 9:
+        case 21:
+        case 22:
+        case 159:
+        case 154:
+        case 14:
+        case 77:
+        case 78:
+        case 139:
+        case 80:
+        case 81:
+        case 82:
+        case 68:
+        case 67:
+        case 164:
+        case 11:
+        case 29:
+        case 47:
+        case 48:
+        case 95:
+        case 52:
+        case 51:
+        case 46:
+          return 200809;
+        case 79:
+          return 0;
+        case 27:
+        case 246:
+        case 127:
+        case 128:
+        case 23:
+        case 24:
+        case 160:
+        case 161:
+        case 181:
+        case 182:
+        case 242:
+        case 183:
+        case 184:
+        case 243:
+        case 244:
+        case 245:
+        case 165:
+        case 178:
+        case 179:
+        case 49:
+        case 50:
+        case 168:
+        case 169:
+        case 175:
+        case 170:
+        case 171:
+        case 172:
+        case 97:
+        case 76:
+        case 32:
+        case 173:
+        case 35:
+          return -1;
+        case 176:
+        case 177:
+        case 7:
+        case 155:
+        case 8:
+        case 157:
+        case 125:
+        case 126:
+        case 92:
+        case 93:
+        case 129:
+        case 130:
+        case 131:
+        case 94:
+        case 91:
+          return 1;
+        case 74:
+        case 60:
+        case 69:
+        case 70:
+        case 4:
+          return 1024;
+        case 31:
+        case 42:
+        case 72:
+          return 32;
+        case 87:
+        case 26:
+        case 33:
+          return 2147483647;
+        case 34:
+        case 1:
+          return 47839;
+        case 38:
+        case 36:
+          return 99;
+        case 43:
+        case 37:
+          return 2048;
+        case 0: return 2097152;
+        case 3: return 65536;
+        case 28: return 32768;
+        case 44: return 32767;
+        case 75: return 16384;
+        case 39: return 1000;
+        case 89: return 700;
+        case 71: return 256;
+        case 40: return 255;
+        case 2: return 100;
+        case 180: return 64;
+        case 25: return 20;
+        case 5: return 16;
+        case 6: return 6;
+        case 73: return 4;
+        case 84: {
+          if (typeof navigator === 'object') return navigator['hardwareConcurrency'] || 1;
+          return 1;
+        }
+      }
+      ___setErrNo(22);
+      return -1;
+    }
 if (!ENVIRONMENT_IS_PTHREAD) PThread.initMainThreadBlock();;
 if (ENVIRONMENT_IS_NODE) {
     _emscripten_get_now = function _emscripten_get_now_actual() {
@@ -2748,10 +6303,12 @@ if (ENVIRONMENT_IS_NODE) {
   } else {
     _emscripten_get_now = Date.now;
   };
+FS.staticInit();;
+if (ENVIRONMENT_IS_NODE) { var fs = require("fs"); var NODEJS_PATH = require("path"); NODEFS.staticInit(); };
 
  // proxiedFunctionTable specifies the list of functions that can be called either synchronously or asynchronously from other threads in postMessage()d or internally queued events. This way a pthread in a Worker can synchronously access e.g. the DOM on the main thread.
 
-var proxiedFunctionTable = [null,___syscall140,___syscall146,___syscall54,___syscall6,_emscripten_set_canvas_element_size_main_thread];
+var proxiedFunctionTable = [null,___syscall140,___syscall146,___syscall221,___syscall3,___syscall5,___syscall54,___syscall6,_emscripten_set_canvas_element_size_main_thread,_getenv,_tzset,_sysconf];
 
 var ASSERTIONS = true;
 
@@ -2785,117 +6342,138 @@ function intArrayToString(array) {
 }
 
 
-// ASM_LIBRARY EXTERN PRIMITIVES: Int8Array,Int32Array
+// ASM_LIBRARY EXTERN PRIMITIVES: Math_floor,Math_ceil,Int8Array,Int32Array
 
 
+var debug_table_dd = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sinh", "_cosh", "_tanh", "_sin", "_cos", "_tan", "_atan", "_asin", "_acos", "_exp", "_log", "_fabs", "_etime", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_did = ["0"];
+var debug_table_didd = ["0"];
+var debug_table_fii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sbr_sum_square_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_fiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_avpriv_scalarproduct_float_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
 var debug_table_i = ["0"];
-var debug_table_ii = ["0", "___stdio_close", "0", "0", "0", "__wait_http_result", "__call_xhr_get_file_size", "__call_xhr_load_file", "___emscripten_thread_main", "0", "0", "0", "0", "0", "0", "0"];
-var debug_table_iii = ["0"];
-var debug_table_iiii = ["0", "0", "___stdout_write", "___stdio_seek", "_sn_write", "0", "0", "0", "0", "___stdio_write", "0", "0", "0", "0", "0", "0"];
-var debug_table_iiiii = ["0"];
-var debug_table_iiiiii = ["0"];
-var debug_table_iiiiiii = ["0"];
+var debug_table_ii = ["0", "_decode_init_thread_copy", "0", "_h264_decode_init", "0", "_h264_decode_end", "0", "_av_default_item_name", "_context_to_name", "0", "_codec_child_class_next", "_get_category", "_aac_parse_init", "0", "0", "_aac_decode_init", "0", "_aac_decode_close", "0", "0", "_ff_bsf_child_class_next", "_init", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "___stdio_close", "0", "0", "0", "0", "0", "0", "__media_load_start", "__media_demux_start", "__audio_decode_start", "__video_decode_start", "__wait_http_result", "__call_xhr_get_file_size", "__call_xhr_load_file", "0", "0", "_av_buffer_allocz", "0", "0", "0", "0", "0", "0", "0", "_frame_worker_thread", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sum_abs_dctelem_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_av_buffer_alloc", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_thread_worker", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "___emscripten_thread_main", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_iii = ["0", "0", "_ff_h264_update_thread_context", "0", "0", "0", "0", "0", "0", "_codec_child_next", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_bsf_child_next", "0", "0", "0", "0", "0", "_null_filter", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_avcodec_default_get_format", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_descriptor_compare", "_decode_slice", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_startcode_find_candidate_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_color_table_compare", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_iiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_split", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "___stdio_write", "___stdio_seek", "___stdout_write", "_sn_write", "_aac_decode_func", "_h264_decode_func", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_avcodec_default_get_buffer2", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_do_read", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_iiiii = ["0", "0", "0", "0", "_h264_decode_frame", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_aac_decode_frame", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_iiiiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_avcodec_default_execute2", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sbr_lf_gen", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pix_abs16_c", "_pix_abs16_x2_c", "_pix_abs16_y2_c", "_pix_abs16_xy2_c", "_pix_abs8_c", "_pix_abs8_x2_c", "_pix_abs8_y2_c", "_pix_abs8_xy2_c", "_hadamard8_diff16_c", "_hadamard8_diff8x8_c", "_hadamard8_intra16_c", "_hadamard8_intra8x8_c", "_dct_sad16_c", "_dct_sad8x8_c", "_dct_max16_c", "_dct_max8x8_c", "_sse16_c", "_sse8_c", "_sse4_c", "_quant_psnr16_c", "_quant_psnr8x8_c", "_rd16_c", "_rd8x8_c", "_bit16_c", "_bit8x8_c", "_vsad16_c", "_vsad8_c", "_vsad_intra16_c", "_vsad_intra8_c", "_vsse16_c", "_vsse8_c", "_vsse_intra16_c", "_vsse_intra8_c", "_nsse16_c", "_nsse8_c", "_pix_median_abs16_c", "_pix_median_abs8_c", "0", "0", "0", "_thread_execute2", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_iiiiiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_aac_ac3_parse", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_parse", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_avcodec_default_execute", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sbr_x_gen", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_thread_execute", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
 var debug_table_iiiiiiii = ["0"];
 var debug_table_iiiiiiiii = ["0"];
 var debug_table_iiiiiiiiii = ["0"];
-var debug_table_v = ["0"];
+var debug_table_ijiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_aac_sync", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_v = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_init_ff_cos_tabs_16", "_init_ff_cos_tabs_32", "_init_ff_cos_tabs_64", "_init_ff_cos_tabs_128", "_init_ff_cos_tabs_256", "_init_ff_cos_tabs_512", "_init_ff_cos_tabs_1024", "_init_ff_cos_tabs_2048", "_init_ff_cos_tabs_4096", "_init_ff_cos_tabs_8192", "_init_ff_cos_tabs_16384", "_init_ff_cos_tabs_32768", "_init_ff_cos_tabs_65536", "_init_ff_cos_tabs_131072", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_av_codec_init_static", "_av_codec_init_next", "0", "0", "_ff_h264_decode_init_vlc", "0", "0", "0", "0", "0", "0", "0", "_aac_static_table_init", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
 var debug_table_vf = ["0"];
 var debug_table_vff = ["0"];
 var debug_table_vfff = ["0"];
 var debug_table_vffff = ["0"];
-var debug_table_vi = ["0"];
+var debug_table_vi = ["0", "0", "0", "0", "0", "0", "_flush_dpb", "0", "0", "0", "0", "0", "0", "0", "_ff_parse_close", "0", "0", "0", "_flush", "0", "0", "0", "0", "_h264_close", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_fft4", "_fft8", "_fft16", "_fft32", "_fft64", "_fft128", "_fft256", "_fft512", "_fft1024", "_fft2048", "_fft4096", "_fft8192", "_fft16384", "_fft32768", "_fft65536", "_fft131072", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_main_function", "0", "0", "0", "_sbr_sum64x5_c", "0", "_sbr_neg_odd_64_c", "_sbr_qmf_pre_shuffle_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_undo", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
 var debug_table_vif = ["0"];
 var debug_table_viff = ["0"];
 var debug_table_vifff = ["0"];
 var debug_table_viffff = ["0"];
-var debug_table_vii = ["0"];
+var debug_table_vii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_decode_data_free", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_imdct_and_windowing", "_apply_ltp", "0", "0", "_update_ltp", "_imdct_and_windowing_ld", "_imdct_and_windowing_eld", "_imdct_and_windowing_960", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_chroma422_dc_dequant_idct_9_c", "_ff_h264_chroma_dc_dequant_idct_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_chroma422_dc_dequant_idct_10_c", "_ff_h264_chroma_dc_dequant_idct_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_chroma422_dc_dequant_idct_12_c", "_ff_h264_chroma_dc_dequant_idct_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_chroma422_dc_dequant_idct_14_c", "_ff_h264_chroma_dc_dequant_idct_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_chroma422_dc_dequant_idct_8_c", "_ff_h264_chroma_dc_dequant_idct_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x16_vertical_9_c", "_pred8x8_vertical_9_c", "_pred8x16_horizontal_9_c", "_pred8x8_horizontal_9_c", "_pred8x8_plane_9_c", "_pred8x16_plane_9_c", "_pred8x8_tm_vp8_c", "_pred8x8_dc_9_c", "_pred8x8_left_dc_9_c", "_pred8x8_top_dc_9_c", "_pred8x8_mad_cow_dc_l0t_9", "_pred8x8_mad_cow_dc_0lt_9", "_pred8x8_mad_cow_dc_l00_9", "_pred8x8_mad_cow_dc_0l0_9", "_pred8x16_dc_9_c", "_pred8x16_left_dc_9_c", "_pred8x16_top_dc_9_c", "_pred8x16_mad_cow_dc_l0t_9", "_pred8x16_mad_cow_dc_0lt_9", "_pred8x16_mad_cow_dc_l00_9", "_pred8x16_mad_cow_dc_0l0_9", "_pred8x8_dc_rv40_c", "_pred8x8_left_dc_rv40_c", "_pred8x8_top_dc_rv40_c", "_pred8x8_127_dc_9_c", "_pred8x8_129_dc_9_c", "_pred8x16_128_dc_9_c", "_pred8x8_128_dc_9_c", "_pred16x16_dc_9_c", "_pred16x16_vertical_9_c", "_pred16x16_horizontal_9_c", "_pred16x16_plane_svq3_c", "_pred16x16_plane_rv40_c", "_pred16x16_tm_vp8_c", "_pred16x16_127_dc_9_c", "_pred16x16_129_dc_9_c", "_pred16x16_plane_9_c", "_pred16x16_left_dc_9_c", "_pred16x16_top_dc_9_c", "_pred16x16_128_dc_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x16_vertical_10_c", "_pred8x8_vertical_10_c", "_pred8x16_horizontal_10_c", "_pred8x8_horizontal_10_c", "_pred8x8_plane_10_c", "_pred8x16_plane_10_c", "_pred8x8_dc_10_c", "_pred8x8_left_dc_10_c", "_pred8x8_top_dc_10_c", "_pred8x8_mad_cow_dc_l0t_10", "_pred8x8_mad_cow_dc_0lt_10", "_pred8x8_mad_cow_dc_l00_10", "_pred8x8_mad_cow_dc_0l0_10", "_pred8x16_dc_10_c", "_pred8x16_left_dc_10_c", "_pred8x16_top_dc_10_c", "_pred8x16_mad_cow_dc_l0t_10", "_pred8x16_mad_cow_dc_0lt_10", "_pred8x16_mad_cow_dc_l00_10", "_pred8x16_mad_cow_dc_0l0_10", "_pred8x8_127_dc_10_c", "_pred8x8_129_dc_10_c", "_pred8x16_128_dc_10_c", "_pred8x8_128_dc_10_c", "_pred16x16_dc_10_c", "_pred16x16_vertical_10_c", "_pred16x16_horizontal_10_c", "_pred16x16_127_dc_10_c", "_pred16x16_129_dc_10_c", "_pred16x16_plane_10_c", "_pred16x16_left_dc_10_c", "_pred16x16_top_dc_10_c", "_pred16x16_128_dc_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x16_vertical_12_c", "_pred8x8_vertical_12_c", "_pred8x16_horizontal_12_c", "_pred8x8_horizontal_12_c", "_pred8x8_plane_12_c", "_pred8x16_plane_12_c", "_pred8x8_dc_12_c", "_pred8x8_left_dc_12_c", "_pred8x8_top_dc_12_c", "_pred8x8_mad_cow_dc_l0t_12", "_pred8x8_mad_cow_dc_0lt_12", "_pred8x8_mad_cow_dc_l00_12", "_pred8x8_mad_cow_dc_0l0_12", "_pred8x16_dc_12_c", "_pred8x16_left_dc_12_c", "_pred8x16_top_dc_12_c", "_pred8x16_mad_cow_dc_l0t_12", "_pred8x16_mad_cow_dc_0lt_12", "_pred8x16_mad_cow_dc_l00_12", "_pred8x16_mad_cow_dc_0l0_12", "_pred8x8_127_dc_12_c", "_pred8x8_129_dc_12_c", "_pred8x16_128_dc_12_c", "_pred8x8_128_dc_12_c", "_pred16x16_dc_12_c", "_pred16x16_vertical_12_c", "_pred16x16_horizontal_12_c", "_pred16x16_127_dc_12_c", "_pred16x16_129_dc_12_c", "_pred16x16_plane_12_c", "_pred16x16_left_dc_12_c", "_pred16x16_top_dc_12_c", "_pred16x16_128_dc_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x16_vertical_14_c", "_pred8x8_vertical_14_c", "_pred8x16_horizontal_14_c", "_pred8x8_horizontal_14_c", "_pred8x8_plane_14_c", "_pred8x16_plane_14_c", "_pred8x8_dc_14_c", "_pred8x8_left_dc_14_c", "_pred8x8_top_dc_14_c", "_pred8x8_mad_cow_dc_l0t_14", "_pred8x8_mad_cow_dc_0lt_14", "_pred8x8_mad_cow_dc_l00_14", "_pred8x8_mad_cow_dc_0l0_14", "_pred8x16_dc_14_c", "_pred8x16_left_dc_14_c", "_pred8x16_top_dc_14_c", "_pred8x16_mad_cow_dc_l0t_14", "_pred8x16_mad_cow_dc_0lt_14", "_pred8x16_mad_cow_dc_l00_14", "_pred8x16_mad_cow_dc_0l0_14", "_pred8x8_127_dc_14_c", "_pred8x8_129_dc_14_c", "_pred8x16_128_dc_14_c", "_pred8x8_128_dc_14_c", "_pred16x16_dc_14_c", "_pred16x16_vertical_14_c", "_pred16x16_horizontal_14_c", "_pred16x16_127_dc_14_c", "_pred16x16_129_dc_14_c", "_pred16x16_plane_14_c", "_pred16x16_left_dc_14_c", "_pred16x16_top_dc_14_c", "_pred16x16_128_dc_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x16_vertical_8_c", "_pred8x8_vertical_8_c", "_pred8x16_horizontal_8_c", "_pred8x8_horizontal_8_c", "_pred8x8_plane_8_c", "_pred8x16_plane_8_c", "_pred8x8_dc_8_c", "_pred8x8_left_dc_8_c", "_pred8x8_top_dc_8_c", "_pred8x8_mad_cow_dc_l0t_8", "_pred8x8_mad_cow_dc_0lt_8", "_pred8x8_mad_cow_dc_l00_8", "_pred8x8_mad_cow_dc_0l0_8", "_pred8x16_dc_8_c", "_pred8x16_left_dc_8_c", "_pred8x16_top_dc_8_c", "_pred8x16_mad_cow_dc_l0t_8", "_pred8x16_mad_cow_dc_0lt_8", "_pred8x16_mad_cow_dc_l00_8", "_pred8x16_mad_cow_dc_0l0_8", "_pred8x8_127_dc_8_c", "_pred8x8_129_dc_8_c", "_pred8x16_128_dc_8_c", "_pred8x8_128_dc_8_c", "_pred16x16_dc_8_c", "_pred16x16_vertical_8_c", "_pred16x16_horizontal_8_c", "_pred16x16_127_dc_8_c", "_pred16x16_129_dc_8_c", "_pred16x16_plane_8_c", "_pred16x16_left_dc_8_c", "_pred16x16_top_dc_8_c", "_pred16x16_128_dc_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sbr_qmf_post_shuffle_c", "_sbr_qmf_deint_neg_c", "0", "_sbr_autocorrelate_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_fft_permute_c", "_fft_calc_c", "0", "0", "0", "_av_buffer_default_free", "0", "_pool_release_buffer", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sha1_transform", "_sha256_transform", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_viidi = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_vector_dmac_scalar_c", "_vector_dmul_scalar_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
 var debug_table_viif = ["0"];
-var debug_table_viifi = ["0"];
-var debug_table_viii = ["0"];
-var debug_table_viiii = ["0"];
-var debug_table_viiiii = ["0"];
-var debug_table_viiiiii = ["0"];
+var debug_table_viifi = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_vector_fmac_scalar_c", "_vector_fmul_scalar_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_viii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_add_pixels4_8_c", "_ff_h264_add_pixels4_16_c", "_ff_h264_add_pixels8_8_c", "_ff_h264_add_pixels8_16_c", "_ff_h264_idct_add_9_c", "_ff_h264_idct8_add_9_c", "_ff_h264_idct_dc_add_9_c", "_ff_h264_idct8_dc_add_9_c", "0", "0", "0", "0", "0", "_ff_h264_luma_dc_dequant_idct_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_idct_add_10_c", "_ff_h264_idct8_add_10_c", "_ff_h264_idct_dc_add_10_c", "_ff_h264_idct8_dc_add_10_c", "0", "0", "0", "0", "0", "_ff_h264_luma_dc_dequant_idct_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_idct_add_12_c", "_ff_h264_idct8_add_12_c", "_ff_h264_idct_dc_add_12_c", "_ff_h264_idct8_dc_add_12_c", "0", "0", "0", "0", "0", "_ff_h264_luma_dc_dequant_idct_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_idct_add_14_c", "_ff_h264_idct8_add_14_c", "_ff_h264_idct_dc_add_14_c", "_ff_h264_idct8_dc_add_14_c", "0", "0", "0", "0", "0", "_ff_h264_luma_dc_dequant_idct_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_idct_add_8_c", "_ff_h264_idct8_add_8_c", "_ff_h264_idct_dc_add_8_c", "_ff_h264_idct8_dc_add_8_c", "0", "0", "0", "0", "0", "_ff_h264_luma_dc_dequant_idct_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred4x4_dc_9_c", "_pred4x4_down_left_9_c", "_pred4x4_down_left_svq3_c", "_pred4x4_down_right_9_c", "_pred4x4_vertical_right_9_c", "_pred4x4_horizontal_down_9_c", "_pred4x4_vertical_left_9_c", "_pred4x4_vertical_left_vp8_c", "_pred4x4_horizontal_up_9_c", "_pred4x4_left_dc_9_c", "_pred4x4_top_dc_9_c", "_pred4x4_tm_vp8_c", "_pred4x4_127_dc_9_c", "_pred4x4_129_dc_9_c", "_pred4x4_vertical_9_c", "_pred4x4_horizontal_9_c", "_pred4x4_128_dc_9_c", "_pred4x4_down_left_rv40_c", "_pred4x4_vertical_left_rv40_c", "_pred4x4_horizontal_up_rv40_c", "_pred4x4_down_left_rv40_nodown_c", "_pred4x4_horizontal_up_rv40_nodown_c", "_pred4x4_vertical_left_rv40_nodown_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred4x4_vertical_add_9_c", "_pred4x4_horizontal_add_9_c", "_pred8x8l_vertical_add_9_c", "_pred8x8l_horizontal_add_9_c", "0", "0", "0", "0", "0", "0", "_pred4x4_dc_10_c", "_pred4x4_down_left_10_c", "_pred4x4_down_right_10_c", "_pred4x4_vertical_right_10_c", "_pred4x4_horizontal_down_10_c", "_pred4x4_vertical_left_10_c", "_pred4x4_horizontal_up_10_c", "_pred4x4_left_dc_10_c", "_pred4x4_top_dc_10_c", "_pred4x4_127_dc_10_c", "_pred4x4_129_dc_10_c", "_pred4x4_vertical_10_c", "_pred4x4_horizontal_10_c", "_pred4x4_128_dc_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred4x4_vertical_add_10_c", "_pred4x4_horizontal_add_10_c", "_pred8x8l_vertical_add_10_c", "_pred8x8l_horizontal_add_10_c", "0", "0", "0", "0", "0", "0", "_pred4x4_dc_12_c", "_pred4x4_down_left_12_c", "_pred4x4_down_right_12_c", "_pred4x4_vertical_right_12_c", "_pred4x4_horizontal_down_12_c", "_pred4x4_vertical_left_12_c", "_pred4x4_horizontal_up_12_c", "_pred4x4_left_dc_12_c", "_pred4x4_top_dc_12_c", "_pred4x4_127_dc_12_c", "_pred4x4_129_dc_12_c", "_pred4x4_vertical_12_c", "_pred4x4_horizontal_12_c", "_pred4x4_128_dc_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred4x4_vertical_add_12_c", "_pred4x4_horizontal_add_12_c", "_pred8x8l_vertical_add_12_c", "_pred8x8l_horizontal_add_12_c", "0", "0", "0", "0", "0", "0", "_pred4x4_dc_14_c", "_pred4x4_down_left_14_c", "_pred4x4_down_right_14_c", "_pred4x4_vertical_right_14_c", "_pred4x4_horizontal_down_14_c", "_pred4x4_vertical_left_14_c", "_pred4x4_horizontal_up_14_c", "_pred4x4_left_dc_14_c", "_pred4x4_top_dc_14_c", "_pred4x4_127_dc_14_c", "_pred4x4_129_dc_14_c", "_pred4x4_vertical_14_c", "_pred4x4_horizontal_14_c", "_pred4x4_128_dc_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred4x4_vertical_add_14_c", "_pred4x4_horizontal_add_14_c", "_pred8x8l_vertical_add_14_c", "_pred8x8l_horizontal_add_14_c", "0", "0", "0", "0", "0", "0", "_pred4x4_dc_8_c", "_pred4x4_down_left_8_c", "_pred4x4_down_right_8_c", "_pred4x4_vertical_right_8_c", "_pred4x4_horizontal_down_8_c", "_pred4x4_vertical_left_8_c", "_pred4x4_horizontal_up_8_c", "_pred4x4_left_dc_8_c", "_pred4x4_top_dc_8_c", "_pred4x4_127_dc_8_c", "_pred4x4_129_dc_8_c", "_pred4x4_vertical_8_c", "_pred4x4_horizontal_8_c", "_pred4x4_128_dc_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred4x4_vertical_add_8_c", "_pred4x4_horizontal_add_8_c", "_pred8x8l_vertical_add_8_c", "_pred8x8l_horizontal_add_8_c", "0", "0", "0", "0", "0", "0", "_pred4x4_vertical_vp8_c", "_pred4x4_horizontal_vp8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_put_h264_qpel16_mc00_8_c", "_put_h264_qpel16_mc10_8_c", "_put_h264_qpel16_mc20_8_c", "_put_h264_qpel16_mc30_8_c", "_put_h264_qpel16_mc01_8_c", "_put_h264_qpel16_mc11_8_c", "_put_h264_qpel16_mc21_8_c", "_put_h264_qpel16_mc31_8_c", "_put_h264_qpel16_mc02_8_c", "_put_h264_qpel16_mc12_8_c", "_put_h264_qpel16_mc22_8_c", "_put_h264_qpel16_mc32_8_c", "_put_h264_qpel16_mc03_8_c", "_put_h264_qpel16_mc13_8_c", "_put_h264_qpel16_mc23_8_c", "_put_h264_qpel16_mc33_8_c", "_put_h264_qpel8_mc00_8_c", "_put_h264_qpel8_mc10_8_c", "_put_h264_qpel8_mc20_8_c", "_put_h264_qpel8_mc30_8_c", "_put_h264_qpel8_mc01_8_c", "_put_h264_qpel8_mc11_8_c", "_put_h264_qpel8_mc21_8_c", "_put_h264_qpel8_mc31_8_c", "_put_h264_qpel8_mc02_8_c", "_put_h264_qpel8_mc12_8_c", "_put_h264_qpel8_mc22_8_c", "_put_h264_qpel8_mc32_8_c", "_put_h264_qpel8_mc03_8_c", "_put_h264_qpel8_mc13_8_c", "_put_h264_qpel8_mc23_8_c", "_put_h264_qpel8_mc33_8_c", "_put_h264_qpel4_mc00_8_c", "_put_h264_qpel4_mc10_8_c", "_put_h264_qpel4_mc20_8_c", "_put_h264_qpel4_mc30_8_c", "_put_h264_qpel4_mc01_8_c", "_put_h264_qpel4_mc11_8_c", "_put_h264_qpel4_mc21_8_c", "_put_h264_qpel4_mc31_8_c", "_put_h264_qpel4_mc02_8_c", "_put_h264_qpel4_mc12_8_c", "_put_h264_qpel4_mc22_8_c", "_put_h264_qpel4_mc32_8_c", "_put_h264_qpel4_mc03_8_c", "_put_h264_qpel4_mc13_8_c", "_put_h264_qpel4_mc23_8_c", "_put_h264_qpel4_mc33_8_c", "_put_h264_qpel2_mc00_8_c", "_put_h264_qpel2_mc10_8_c", "_put_h264_qpel2_mc20_8_c", "_put_h264_qpel2_mc30_8_c", "_put_h264_qpel2_mc01_8_c", "_put_h264_qpel2_mc11_8_c", "_put_h264_qpel2_mc21_8_c", "_put_h264_qpel2_mc31_8_c", "_put_h264_qpel2_mc02_8_c", "_put_h264_qpel2_mc12_8_c", "_put_h264_qpel2_mc22_8_c", "_put_h264_qpel2_mc32_8_c", "_put_h264_qpel2_mc03_8_c", "_put_h264_qpel2_mc13_8_c", "_put_h264_qpel2_mc23_8_c", "_put_h264_qpel2_mc33_8_c", "_avg_h264_qpel16_mc00_8_c", "_avg_h264_qpel16_mc10_8_c", "_avg_h264_qpel16_mc20_8_c", "_avg_h264_qpel16_mc30_8_c", "_avg_h264_qpel16_mc01_8_c", "_avg_h264_qpel16_mc11_8_c", "_avg_h264_qpel16_mc21_8_c", "_avg_h264_qpel16_mc31_8_c", "_avg_h264_qpel16_mc02_8_c", "_avg_h264_qpel16_mc12_8_c", "_avg_h264_qpel16_mc22_8_c", "_avg_h264_qpel16_mc32_8_c", "_avg_h264_qpel16_mc03_8_c", "_avg_h264_qpel16_mc13_8_c", "_avg_h264_qpel16_mc23_8_c", "_avg_h264_qpel16_mc33_8_c", "_avg_h264_qpel8_mc00_8_c", "_avg_h264_qpel8_mc10_8_c", "_avg_h264_qpel8_mc20_8_c", "_avg_h264_qpel8_mc30_8_c", "_avg_h264_qpel8_mc01_8_c", "_avg_h264_qpel8_mc11_8_c", "_avg_h264_qpel8_mc21_8_c", "_avg_h264_qpel8_mc31_8_c", "_avg_h264_qpel8_mc02_8_c", "_avg_h264_qpel8_mc12_8_c", "_avg_h264_qpel8_mc22_8_c", "_avg_h264_qpel8_mc32_8_c", "_avg_h264_qpel8_mc03_8_c", "_avg_h264_qpel8_mc13_8_c", "_avg_h264_qpel8_mc23_8_c", "_avg_h264_qpel8_mc33_8_c", "_avg_h264_qpel4_mc00_8_c", "_avg_h264_qpel4_mc10_8_c", "_avg_h264_qpel4_mc20_8_c", "_avg_h264_qpel4_mc30_8_c", "_avg_h264_qpel4_mc01_8_c", "_avg_h264_qpel4_mc11_8_c", "_avg_h264_qpel4_mc21_8_c", "_avg_h264_qpel4_mc31_8_c", "_avg_h264_qpel4_mc02_8_c", "_avg_h264_qpel4_mc12_8_c", "_avg_h264_qpel4_mc22_8_c", "_avg_h264_qpel4_mc32_8_c", "_avg_h264_qpel4_mc03_8_c", "_avg_h264_qpel4_mc13_8_c", "_avg_h264_qpel4_mc23_8_c", "_avg_h264_qpel4_mc33_8_c", "_put_h264_qpel16_mc00_9_c", "_put_h264_qpel16_mc10_9_c", "_put_h264_qpel16_mc20_9_c", "_put_h264_qpel16_mc30_9_c", "_put_h264_qpel16_mc01_9_c", "_put_h264_qpel16_mc11_9_c", "_put_h264_qpel16_mc21_9_c", "_put_h264_qpel16_mc31_9_c", "_put_h264_qpel16_mc02_9_c", "_put_h264_qpel16_mc12_9_c", "_put_h264_qpel16_mc22_9_c", "_put_h264_qpel16_mc32_9_c", "_put_h264_qpel16_mc03_9_c", "_put_h264_qpel16_mc13_9_c", "_put_h264_qpel16_mc23_9_c", "_put_h264_qpel16_mc33_9_c", "_put_h264_qpel8_mc00_9_c", "_put_h264_qpel8_mc10_9_c", "_put_h264_qpel8_mc20_9_c", "_put_h264_qpel8_mc30_9_c", "_put_h264_qpel8_mc01_9_c", "_put_h264_qpel8_mc11_9_c", "_put_h264_qpel8_mc21_9_c", "_put_h264_qpel8_mc31_9_c", "_put_h264_qpel8_mc02_9_c", "_put_h264_qpel8_mc12_9_c", "_put_h264_qpel8_mc22_9_c", "_put_h264_qpel8_mc32_9_c", "_put_h264_qpel8_mc03_9_c", "_put_h264_qpel8_mc13_9_c", "_put_h264_qpel8_mc23_9_c", "_put_h264_qpel8_mc33_9_c", "_put_h264_qpel4_mc00_9_c", "_put_h264_qpel4_mc10_9_c", "_put_h264_qpel4_mc20_9_c", "_put_h264_qpel4_mc30_9_c", "_put_h264_qpel4_mc01_9_c", "_put_h264_qpel4_mc11_9_c", "_put_h264_qpel4_mc21_9_c", "_put_h264_qpel4_mc31_9_c", "_put_h264_qpel4_mc02_9_c", "_put_h264_qpel4_mc12_9_c", "_put_h264_qpel4_mc22_9_c", "_put_h264_qpel4_mc32_9_c", "_put_h264_qpel4_mc03_9_c", "_put_h264_qpel4_mc13_9_c", "_put_h264_qpel4_mc23_9_c", "_put_h264_qpel4_mc33_9_c", "_put_h264_qpel2_mc00_9_c", "_put_h264_qpel2_mc10_9_c", "_put_h264_qpel2_mc20_9_c", "_put_h264_qpel2_mc30_9_c", "_put_h264_qpel2_mc01_9_c", "_put_h264_qpel2_mc11_9_c", "_put_h264_qpel2_mc21_9_c", "_put_h264_qpel2_mc31_9_c", "_put_h264_qpel2_mc02_9_c", "_put_h264_qpel2_mc12_9_c", "_put_h264_qpel2_mc22_9_c", "_put_h264_qpel2_mc32_9_c", "_put_h264_qpel2_mc03_9_c", "_put_h264_qpel2_mc13_9_c", "_put_h264_qpel2_mc23_9_c", "_put_h264_qpel2_mc33_9_c", "_avg_h264_qpel16_mc00_9_c", "_avg_h264_qpel16_mc10_9_c", "_avg_h264_qpel16_mc20_9_c", "_avg_h264_qpel16_mc30_9_c", "_avg_h264_qpel16_mc01_9_c", "_avg_h264_qpel16_mc11_9_c", "_avg_h264_qpel16_mc21_9_c", "_avg_h264_qpel16_mc31_9_c", "_avg_h264_qpel16_mc02_9_c", "_avg_h264_qpel16_mc12_9_c", "_avg_h264_qpel16_mc22_9_c", "_avg_h264_qpel16_mc32_9_c", "_avg_h264_qpel16_mc03_9_c", "_avg_h264_qpel16_mc13_9_c", "_avg_h264_qpel16_mc23_9_c", "_avg_h264_qpel16_mc33_9_c", "_avg_h264_qpel8_mc00_9_c", "_avg_h264_qpel8_mc10_9_c", "_avg_h264_qpel8_mc20_9_c", "_avg_h264_qpel8_mc30_9_c", "_avg_h264_qpel8_mc01_9_c", "_avg_h264_qpel8_mc11_9_c", "_avg_h264_qpel8_mc21_9_c", "_avg_h264_qpel8_mc31_9_c", "_avg_h264_qpel8_mc02_9_c", "_avg_h264_qpel8_mc12_9_c", "_avg_h264_qpel8_mc22_9_c", "_avg_h264_qpel8_mc32_9_c", "_avg_h264_qpel8_mc03_9_c", "_avg_h264_qpel8_mc13_9_c", "_avg_h264_qpel8_mc23_9_c", "_avg_h264_qpel8_mc33_9_c", "_avg_h264_qpel4_mc00_9_c", "_avg_h264_qpel4_mc10_9_c", "_avg_h264_qpel4_mc20_9_c", "_avg_h264_qpel4_mc30_9_c", "_avg_h264_qpel4_mc01_9_c", "_avg_h264_qpel4_mc11_9_c", "_avg_h264_qpel4_mc21_9_c", "_avg_h264_qpel4_mc31_9_c", "_avg_h264_qpel4_mc02_9_c", "_avg_h264_qpel4_mc12_9_c", "_avg_h264_qpel4_mc22_9_c", "_avg_h264_qpel4_mc32_9_c", "_avg_h264_qpel4_mc03_9_c", "_avg_h264_qpel4_mc13_9_c", "_avg_h264_qpel4_mc23_9_c", "_avg_h264_qpel4_mc33_9_c", "_put_h264_qpel16_mc00_10_c", "_put_h264_qpel16_mc10_10_c", "_put_h264_qpel16_mc20_10_c", "_put_h264_qpel16_mc30_10_c", "_put_h264_qpel16_mc01_10_c", "_put_h264_qpel16_mc11_10_c", "_put_h264_qpel16_mc21_10_c", "_put_h264_qpel16_mc31_10_c", "_put_h264_qpel16_mc02_10_c", "_put_h264_qpel16_mc12_10_c", "_put_h264_qpel16_mc22_10_c", "_put_h264_qpel16_mc32_10_c", "_put_h264_qpel16_mc03_10_c", "_put_h264_qpel16_mc13_10_c", "_put_h264_qpel16_mc23_10_c", "_put_h264_qpel16_mc33_10_c", "_put_h264_qpel8_mc00_10_c", "_put_h264_qpel8_mc10_10_c", "_put_h264_qpel8_mc20_10_c", "_put_h264_qpel8_mc30_10_c", "_put_h264_qpel8_mc01_10_c", "_put_h264_qpel8_mc11_10_c", "_put_h264_qpel8_mc21_10_c", "_put_h264_qpel8_mc31_10_c", "_put_h264_qpel8_mc02_10_c", "_put_h264_qpel8_mc12_10_c", "_put_h264_qpel8_mc22_10_c", "_put_h264_qpel8_mc32_10_c", "_put_h264_qpel8_mc03_10_c", "_put_h264_qpel8_mc13_10_c", "_put_h264_qpel8_mc23_10_c", "_put_h264_qpel8_mc33_10_c", "_put_h264_qpel4_mc00_10_c", "_put_h264_qpel4_mc10_10_c", "_put_h264_qpel4_mc20_10_c", "_put_h264_qpel4_mc30_10_c", "_put_h264_qpel4_mc01_10_c", "_put_h264_qpel4_mc11_10_c", "_put_h264_qpel4_mc21_10_c", "_put_h264_qpel4_mc31_10_c", "_put_h264_qpel4_mc02_10_c", "_put_h264_qpel4_mc12_10_c", "_put_h264_qpel4_mc22_10_c", "_put_h264_qpel4_mc32_10_c", "_put_h264_qpel4_mc03_10_c", "_put_h264_qpel4_mc13_10_c", "_put_h264_qpel4_mc23_10_c", "_put_h264_qpel4_mc33_10_c", "_put_h264_qpel2_mc00_10_c", "_put_h264_qpel2_mc10_10_c", "_put_h264_qpel2_mc20_10_c", "_put_h264_qpel2_mc30_10_c", "_put_h264_qpel2_mc01_10_c", "_put_h264_qpel2_mc11_10_c", "_put_h264_qpel2_mc21_10_c", "_put_h264_qpel2_mc31_10_c", "_put_h264_qpel2_mc02_10_c", "_put_h264_qpel2_mc12_10_c", "_put_h264_qpel2_mc22_10_c", "_put_h264_qpel2_mc32_10_c", "_put_h264_qpel2_mc03_10_c", "_put_h264_qpel2_mc13_10_c", "_put_h264_qpel2_mc23_10_c", "_put_h264_qpel2_mc33_10_c", "_avg_h264_qpel16_mc00_10_c", "_avg_h264_qpel16_mc10_10_c", "_avg_h264_qpel16_mc20_10_c", "_avg_h264_qpel16_mc30_10_c", "_avg_h264_qpel16_mc01_10_c", "_avg_h264_qpel16_mc11_10_c", "_avg_h264_qpel16_mc21_10_c", "_avg_h264_qpel16_mc31_10_c", "_avg_h264_qpel16_mc02_10_c", "_avg_h264_qpel16_mc12_10_c", "_avg_h264_qpel16_mc22_10_c", "_avg_h264_qpel16_mc32_10_c", "_avg_h264_qpel16_mc03_10_c", "_avg_h264_qpel16_mc13_10_c", "_avg_h264_qpel16_mc23_10_c", "_avg_h264_qpel16_mc33_10_c", "_avg_h264_qpel8_mc00_10_c", "_avg_h264_qpel8_mc10_10_c", "_avg_h264_qpel8_mc20_10_c", "_avg_h264_qpel8_mc30_10_c", "_avg_h264_qpel8_mc01_10_c", "_avg_h264_qpel8_mc11_10_c", "_avg_h264_qpel8_mc21_10_c", "_avg_h264_qpel8_mc31_10_c", "_avg_h264_qpel8_mc02_10_c", "_avg_h264_qpel8_mc12_10_c", "_avg_h264_qpel8_mc22_10_c", "_avg_h264_qpel8_mc32_10_c", "_avg_h264_qpel8_mc03_10_c", "_avg_h264_qpel8_mc13_10_c", "_avg_h264_qpel8_mc23_10_c", "_avg_h264_qpel8_mc33_10_c", "_avg_h264_qpel4_mc00_10_c", "_avg_h264_qpel4_mc10_10_c", "_avg_h264_qpel4_mc20_10_c", "_avg_h264_qpel4_mc30_10_c", "_avg_h264_qpel4_mc01_10_c", "_avg_h264_qpel4_mc11_10_c", "_avg_h264_qpel4_mc21_10_c", "_avg_h264_qpel4_mc31_10_c", "_avg_h264_qpel4_mc02_10_c", "_avg_h264_qpel4_mc12_10_c", "_avg_h264_qpel4_mc22_10_c", "_avg_h264_qpel4_mc32_10_c", "_avg_h264_qpel4_mc03_10_c", "_avg_h264_qpel4_mc13_10_c", "_avg_h264_qpel4_mc23_10_c", "_avg_h264_qpel4_mc33_10_c", "_put_h264_qpel16_mc00_12_c", "_put_h264_qpel16_mc10_12_c", "_put_h264_qpel16_mc20_12_c", "_put_h264_qpel16_mc30_12_c", "_put_h264_qpel16_mc01_12_c", "_put_h264_qpel16_mc11_12_c", "_put_h264_qpel16_mc21_12_c", "_put_h264_qpel16_mc31_12_c", "_put_h264_qpel16_mc02_12_c", "_put_h264_qpel16_mc12_12_c", "_put_h264_qpel16_mc22_12_c", "_put_h264_qpel16_mc32_12_c", "_put_h264_qpel16_mc03_12_c", "_put_h264_qpel16_mc13_12_c", "_put_h264_qpel16_mc23_12_c", "_put_h264_qpel16_mc33_12_c", "_put_h264_qpel8_mc00_12_c", "_put_h264_qpel8_mc10_12_c", "_put_h264_qpel8_mc20_12_c", "_put_h264_qpel8_mc30_12_c", "_put_h264_qpel8_mc01_12_c", "_put_h264_qpel8_mc11_12_c", "_put_h264_qpel8_mc21_12_c", "_put_h264_qpel8_mc31_12_c", "_put_h264_qpel8_mc02_12_c", "_put_h264_qpel8_mc12_12_c", "_put_h264_qpel8_mc22_12_c", "_put_h264_qpel8_mc32_12_c", "_put_h264_qpel8_mc03_12_c", "_put_h264_qpel8_mc13_12_c", "_put_h264_qpel8_mc23_12_c", "_put_h264_qpel8_mc33_12_c", "_put_h264_qpel4_mc00_12_c", "_put_h264_qpel4_mc10_12_c", "_put_h264_qpel4_mc20_12_c", "_put_h264_qpel4_mc30_12_c", "_put_h264_qpel4_mc01_12_c", "_put_h264_qpel4_mc11_12_c", "_put_h264_qpel4_mc21_12_c", "_put_h264_qpel4_mc31_12_c", "_put_h264_qpel4_mc02_12_c", "_put_h264_qpel4_mc12_12_c", "_put_h264_qpel4_mc22_12_c", "_put_h264_qpel4_mc32_12_c", "_put_h264_qpel4_mc03_12_c", "_put_h264_qpel4_mc13_12_c", "_put_h264_qpel4_mc23_12_c", "_put_h264_qpel4_mc33_12_c", "_put_h264_qpel2_mc00_12_c", "_put_h264_qpel2_mc10_12_c", "_put_h264_qpel2_mc20_12_c", "_put_h264_qpel2_mc30_12_c", "_put_h264_qpel2_mc01_12_c", "_put_h264_qpel2_mc11_12_c", "_put_h264_qpel2_mc21_12_c", "_put_h264_qpel2_mc31_12_c", "_put_h264_qpel2_mc02_12_c", "_put_h264_qpel2_mc12_12_c", "_put_h264_qpel2_mc22_12_c", "_put_h264_qpel2_mc32_12_c", "_put_h264_qpel2_mc03_12_c", "_put_h264_qpel2_mc13_12_c", "_put_h264_qpel2_mc23_12_c", "_put_h264_qpel2_mc33_12_c", "_avg_h264_qpel16_mc00_12_c", "_avg_h264_qpel16_mc10_12_c", "_avg_h264_qpel16_mc20_12_c", "_avg_h264_qpel16_mc30_12_c", "_avg_h264_qpel16_mc01_12_c", "_avg_h264_qpel16_mc11_12_c", "_avg_h264_qpel16_mc21_12_c", "_avg_h264_qpel16_mc31_12_c", "_avg_h264_qpel16_mc02_12_c", "_avg_h264_qpel16_mc12_12_c", "_avg_h264_qpel16_mc22_12_c", "_avg_h264_qpel16_mc32_12_c", "_avg_h264_qpel16_mc03_12_c", "_avg_h264_qpel16_mc13_12_c", "_avg_h264_qpel16_mc23_12_c", "_avg_h264_qpel16_mc33_12_c", "_avg_h264_qpel8_mc00_12_c", "_avg_h264_qpel8_mc10_12_c", "_avg_h264_qpel8_mc20_12_c", "_avg_h264_qpel8_mc30_12_c", "_avg_h264_qpel8_mc01_12_c", "_avg_h264_qpel8_mc11_12_c", "_avg_h264_qpel8_mc21_12_c", "_avg_h264_qpel8_mc31_12_c", "_avg_h264_qpel8_mc02_12_c", "_avg_h264_qpel8_mc12_12_c", "_avg_h264_qpel8_mc22_12_c", "_avg_h264_qpel8_mc32_12_c", "_avg_h264_qpel8_mc03_12_c", "_avg_h264_qpel8_mc13_12_c", "_avg_h264_qpel8_mc23_12_c", "_avg_h264_qpel8_mc33_12_c", "_avg_h264_qpel4_mc00_12_c", "_avg_h264_qpel4_mc10_12_c", "_avg_h264_qpel4_mc20_12_c", "_avg_h264_qpel4_mc30_12_c", "_avg_h264_qpel4_mc01_12_c", "_avg_h264_qpel4_mc11_12_c", "_avg_h264_qpel4_mc21_12_c", "_avg_h264_qpel4_mc31_12_c", "_avg_h264_qpel4_mc02_12_c", "_avg_h264_qpel4_mc12_12_c", "_avg_h264_qpel4_mc22_12_c", "_avg_h264_qpel4_mc32_12_c", "_avg_h264_qpel4_mc03_12_c", "_avg_h264_qpel4_mc13_12_c", "_avg_h264_qpel4_mc23_12_c", "_avg_h264_qpel4_mc33_12_c", "_put_h264_qpel16_mc00_14_c", "_put_h264_qpel16_mc10_14_c", "_put_h264_qpel16_mc20_14_c", "_put_h264_qpel16_mc30_14_c", "_put_h264_qpel16_mc01_14_c", "_put_h264_qpel16_mc11_14_c", "_put_h264_qpel16_mc21_14_c", "_put_h264_qpel16_mc31_14_c", "_put_h264_qpel16_mc02_14_c", "_put_h264_qpel16_mc12_14_c", "_put_h264_qpel16_mc22_14_c", "_put_h264_qpel16_mc32_14_c", "_put_h264_qpel16_mc03_14_c", "_put_h264_qpel16_mc13_14_c", "_put_h264_qpel16_mc23_14_c", "_put_h264_qpel16_mc33_14_c", "_put_h264_qpel8_mc00_14_c", "_put_h264_qpel8_mc10_14_c", "_put_h264_qpel8_mc20_14_c", "_put_h264_qpel8_mc30_14_c", "_put_h264_qpel8_mc01_14_c", "_put_h264_qpel8_mc11_14_c", "_put_h264_qpel8_mc21_14_c", "_put_h264_qpel8_mc31_14_c", "_put_h264_qpel8_mc02_14_c", "_put_h264_qpel8_mc12_14_c", "_put_h264_qpel8_mc22_14_c", "_put_h264_qpel8_mc32_14_c", "_put_h264_qpel8_mc03_14_c", "_put_h264_qpel8_mc13_14_c", "_put_h264_qpel8_mc23_14_c", "_put_h264_qpel8_mc33_14_c", "_put_h264_qpel4_mc00_14_c", "_put_h264_qpel4_mc10_14_c", "_put_h264_qpel4_mc20_14_c", "_put_h264_qpel4_mc30_14_c", "_put_h264_qpel4_mc01_14_c", "_put_h264_qpel4_mc11_14_c", "_put_h264_qpel4_mc21_14_c", "_put_h264_qpel4_mc31_14_c", "_put_h264_qpel4_mc02_14_c", "_put_h264_qpel4_mc12_14_c", "_put_h264_qpel4_mc22_14_c", "_put_h264_qpel4_mc32_14_c", "_put_h264_qpel4_mc03_14_c", "_put_h264_qpel4_mc13_14_c", "_put_h264_qpel4_mc23_14_c", "_put_h264_qpel4_mc33_14_c", "_put_h264_qpel2_mc00_14_c", "_put_h264_qpel2_mc10_14_c", "_put_h264_qpel2_mc20_14_c", "_put_h264_qpel2_mc30_14_c", "_put_h264_qpel2_mc01_14_c", "_put_h264_qpel2_mc11_14_c", "_put_h264_qpel2_mc21_14_c", "_put_h264_qpel2_mc31_14_c", "_put_h264_qpel2_mc02_14_c", "_put_h264_qpel2_mc12_14_c", "_put_h264_qpel2_mc22_14_c", "_put_h264_qpel2_mc32_14_c", "_put_h264_qpel2_mc03_14_c", "_put_h264_qpel2_mc13_14_c", "_put_h264_qpel2_mc23_14_c", "_put_h264_qpel2_mc33_14_c", "_avg_h264_qpel16_mc00_14_c", "_avg_h264_qpel16_mc10_14_c", "_avg_h264_qpel16_mc20_14_c", "_avg_h264_qpel16_mc30_14_c", "_avg_h264_qpel16_mc01_14_c", "_avg_h264_qpel16_mc11_14_c", "_avg_h264_qpel16_mc21_14_c", "_avg_h264_qpel16_mc31_14_c", "_avg_h264_qpel16_mc02_14_c", "_avg_h264_qpel16_mc12_14_c", "_avg_h264_qpel16_mc22_14_c", "_avg_h264_qpel16_mc32_14_c", "_avg_h264_qpel16_mc03_14_c", "_avg_h264_qpel16_mc13_14_c", "_avg_h264_qpel16_mc23_14_c", "_avg_h264_qpel16_mc33_14_c", "_avg_h264_qpel8_mc00_14_c", "_avg_h264_qpel8_mc10_14_c", "_avg_h264_qpel8_mc20_14_c", "_avg_h264_qpel8_mc30_14_c", "_avg_h264_qpel8_mc01_14_c", "_avg_h264_qpel8_mc11_14_c", "_avg_h264_qpel8_mc21_14_c", "_avg_h264_qpel8_mc31_14_c", "_avg_h264_qpel8_mc02_14_c", "_avg_h264_qpel8_mc12_14_c", "_avg_h264_qpel8_mc22_14_c", "_avg_h264_qpel8_mc32_14_c", "_avg_h264_qpel8_mc03_14_c", "_avg_h264_qpel8_mc13_14_c", "_avg_h264_qpel8_mc23_14_c", "_avg_h264_qpel8_mc33_14_c", "_avg_h264_qpel4_mc00_14_c", "_avg_h264_qpel4_mc10_14_c", "_avg_h264_qpel4_mc20_14_c", "_avg_h264_qpel4_mc30_14_c", "_avg_h264_qpel4_mc01_14_c", "_avg_h264_qpel4_mc11_14_c", "_avg_h264_qpel4_mc21_14_c", "_avg_h264_qpel4_mc31_14_c", "_avg_h264_qpel4_mc02_14_c", "_avg_h264_qpel4_mc12_14_c", "_avg_h264_qpel4_mc22_14_c", "_avg_h264_qpel4_mc32_14_c", "_avg_h264_qpel4_mc03_14_c", "_avg_h264_qpel4_mc13_14_c", "_avg_h264_qpel4_mc23_14_c", "_avg_h264_qpel4_mc33_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sbr_qmf_deint_bfly_c", "0", "0", "0", "0", "0", "0", "0", "_just_return", "0", "0", "_ps_add_squares_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_imdct_calc_c", "_ff_imdct_half_c", "_ff_mdct_calc_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_butterflies_float_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_viiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_apply_tns", "_windowing_and_mdct_ltp", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_v_loop_filter_luma_intra_9_c", "_h264_h_loop_filter_luma_intra_9_c", "_h264_h_loop_filter_luma_mbaff_intra_9_c", "0", "0", "0", "0", "0", "_h264_v_loop_filter_chroma_intra_9_c", "_h264_h_loop_filter_chroma422_intra_9_c", "_h264_h_loop_filter_chroma_intra_9_c", "_h264_h_loop_filter_chroma422_mbaff_intra_9_c", "_h264_h_loop_filter_chroma_mbaff_intra_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_v_loop_filter_luma_intra_10_c", "_h264_h_loop_filter_luma_intra_10_c", "_h264_h_loop_filter_luma_mbaff_intra_10_c", "0", "0", "0", "0", "0", "_h264_v_loop_filter_chroma_intra_10_c", "_h264_h_loop_filter_chroma422_intra_10_c", "_h264_h_loop_filter_chroma_intra_10_c", "_h264_h_loop_filter_chroma422_mbaff_intra_10_c", "_h264_h_loop_filter_chroma_mbaff_intra_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_v_loop_filter_luma_intra_12_c", "_h264_h_loop_filter_luma_intra_12_c", "_h264_h_loop_filter_luma_mbaff_intra_12_c", "0", "0", "0", "0", "0", "_h264_v_loop_filter_chroma_intra_12_c", "_h264_h_loop_filter_chroma422_intra_12_c", "_h264_h_loop_filter_chroma_intra_12_c", "_h264_h_loop_filter_chroma422_mbaff_intra_12_c", "_h264_h_loop_filter_chroma_mbaff_intra_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_v_loop_filter_luma_intra_14_c", "_h264_h_loop_filter_luma_intra_14_c", "_h264_h_loop_filter_luma_mbaff_intra_14_c", "0", "0", "0", "0", "0", "_h264_v_loop_filter_chroma_intra_14_c", "_h264_h_loop_filter_chroma422_intra_14_c", "_h264_h_loop_filter_chroma_intra_14_c", "_h264_h_loop_filter_chroma422_mbaff_intra_14_c", "_h264_h_loop_filter_chroma_mbaff_intra_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_v_loop_filter_luma_intra_8_c", "_h264_h_loop_filter_luma_intra_8_c", "_h264_h_loop_filter_luma_mbaff_intra_8_c", "0", "0", "0", "0", "0", "_h264_v_loop_filter_chroma_intra_8_c", "_h264_h_loop_filter_chroma422_intra_8_c", "_h264_h_loop_filter_chroma_intra_8_c", "_h264_h_loop_filter_chroma422_mbaff_intra_8_c", "_h264_h_loop_filter_chroma_mbaff_intra_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x8l_vertical_9_c", "_pred8x8l_horizontal_9_c", "_pred8x8l_dc_9_c", "_pred8x8l_down_left_9_c", "_pred8x8l_down_right_9_c", "_pred8x8l_vertical_right_9_c", "_pred8x8l_horizontal_down_9_c", "_pred8x8l_vertical_left_9_c", "_pred8x8l_horizontal_up_9_c", "_pred8x8l_left_dc_9_c", "_pred8x8l_top_dc_9_c", "_pred8x8l_128_dc_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x16_vertical_add_9_c", "_pred8x8_vertical_add_9_c", "_pred8x16_horizontal_add_9_c", "_pred8x8_horizontal_add_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x8l_vertical_10_c", "_pred8x8l_horizontal_10_c", "_pred8x8l_dc_10_c", "_pred8x8l_down_left_10_c", "_pred8x8l_down_right_10_c", "_pred8x8l_vertical_right_10_c", "_pred8x8l_horizontal_down_10_c", "_pred8x8l_vertical_left_10_c", "_pred8x8l_horizontal_up_10_c", "_pred8x8l_left_dc_10_c", "_pred8x8l_top_dc_10_c", "_pred8x8l_128_dc_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x16_vertical_add_10_c", "_pred8x8_vertical_add_10_c", "_pred8x16_horizontal_add_10_c", "_pred8x8_horizontal_add_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x8l_vertical_12_c", "_pred8x8l_horizontal_12_c", "_pred8x8l_dc_12_c", "_pred8x8l_down_left_12_c", "_pred8x8l_down_right_12_c", "_pred8x8l_vertical_right_12_c", "_pred8x8l_horizontal_down_12_c", "_pred8x8l_vertical_left_12_c", "_pred8x8l_horizontal_up_12_c", "_pred8x8l_left_dc_12_c", "_pred8x8l_top_dc_12_c", "_pred8x8l_128_dc_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x16_vertical_add_12_c", "_pred8x8_vertical_add_12_c", "_pred8x16_horizontal_add_12_c", "_pred8x8_horizontal_add_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x8l_vertical_14_c", "_pred8x8l_horizontal_14_c", "_pred8x8l_dc_14_c", "_pred8x8l_down_left_14_c", "_pred8x8l_down_right_14_c", "_pred8x8l_vertical_right_14_c", "_pred8x8l_horizontal_down_14_c", "_pred8x8l_vertical_left_14_c", "_pred8x8l_horizontal_up_14_c", "_pred8x8l_left_dc_14_c", "_pred8x8l_top_dc_14_c", "_pred8x8l_128_dc_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x16_vertical_add_14_c", "_pred8x8_vertical_add_14_c", "_pred8x16_horizontal_add_14_c", "_pred8x8_horizontal_add_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x8l_vertical_8_c", "_pred8x8l_horizontal_8_c", "_pred8x8l_dc_8_c", "_pred8x8l_down_left_8_c", "_pred8x8l_down_right_8_c", "_pred8x8l_vertical_right_8_c", "_pred8x8l_horizontal_down_8_c", "_pred8x8l_vertical_left_8_c", "_pred8x8l_horizontal_up_8_c", "_pred8x8l_left_dc_8_c", "_pred8x8l_top_dc_8_c", "_pred8x8l_128_dc_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x16_vertical_add_8_c", "_pred8x8_vertical_add_8_c", "_pred8x16_horizontal_add_8_c", "_pred8x8_horizontal_add_8_c", "0", "0", "_pred16x16_vertical_add_9_c", "_pred16x16_horizontal_add_9_c", "_pred16x16_vertical_add_10_c", "_pred16x16_horizontal_add_10_c", "_pred16x16_vertical_add_12_c", "_pred16x16_horizontal_add_12_c", "_pred16x16_vertical_add_14_c", "_pred16x16_horizontal_add_14_c", "_pred16x16_vertical_add_8_c", "_pred16x16_horizontal_add_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_fft15_c", "_mdct15", "_imdct15_half", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ps_mul_pair_single_c", "0", "_ps_hybrid_analysis_ileave_c", "_ps_hybrid_synthesis_deint_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_vector_fmul_c", "_vector_dmul_c", "0", "0", "0", "0", "0", "0", "_vector_fmul_reverse_c", "0", "0", "0", "_av_log_default_callback", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_viiiifii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sbr_hf_gen_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_viiiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sbr_hf_assemble", "0", "_sbr_hf_inverse_filter", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_idct_add16_9_c", "_ff_h264_idct8_add4_9_c", "_ff_h264_idct_add8_422_9_c", "_ff_h264_idct_add8_9_c", "_ff_h264_idct_add16intra_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_v_loop_filter_luma_9_c", "_h264_h_loop_filter_luma_9_c", "_h264_h_loop_filter_luma_mbaff_9_c", "0", "0", "0", "_h264_v_loop_filter_chroma_9_c", "_h264_h_loop_filter_chroma422_9_c", "_h264_h_loop_filter_chroma_9_c", "_h264_h_loop_filter_chroma422_mbaff_9_c", "_h264_h_loop_filter_chroma_mbaff_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_idct_add16_10_c", "_ff_h264_idct8_add4_10_c", "_ff_h264_idct_add8_422_10_c", "_ff_h264_idct_add8_10_c", "_ff_h264_idct_add16intra_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_v_loop_filter_luma_10_c", "_h264_h_loop_filter_luma_10_c", "_h264_h_loop_filter_luma_mbaff_10_c", "0", "0", "0", "_h264_v_loop_filter_chroma_10_c", "_h264_h_loop_filter_chroma422_10_c", "_h264_h_loop_filter_chroma_10_c", "_h264_h_loop_filter_chroma422_mbaff_10_c", "_h264_h_loop_filter_chroma_mbaff_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_idct_add16_12_c", "_ff_h264_idct8_add4_12_c", "_ff_h264_idct_add8_422_12_c", "_ff_h264_idct_add8_12_c", "_ff_h264_idct_add16intra_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_v_loop_filter_luma_12_c", "_h264_h_loop_filter_luma_12_c", "_h264_h_loop_filter_luma_mbaff_12_c", "0", "0", "0", "_h264_v_loop_filter_chroma_12_c", "_h264_h_loop_filter_chroma422_12_c", "_h264_h_loop_filter_chroma_12_c", "_h264_h_loop_filter_chroma422_mbaff_12_c", "_h264_h_loop_filter_chroma_mbaff_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_idct_add16_14_c", "_ff_h264_idct8_add4_14_c", "_ff_h264_idct_add8_422_14_c", "_ff_h264_idct_add8_14_c", "_ff_h264_idct_add16intra_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_v_loop_filter_luma_14_c", "_h264_h_loop_filter_luma_14_c", "_h264_h_loop_filter_luma_mbaff_14_c", "0", "0", "0", "_h264_v_loop_filter_chroma_14_c", "_h264_h_loop_filter_chroma422_14_c", "_h264_h_loop_filter_chroma_14_c", "_h264_h_loop_filter_chroma422_mbaff_14_c", "_h264_h_loop_filter_chroma_mbaff_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_h264_idct_add16_8_c", "_ff_h264_idct8_add4_8_c", "_ff_h264_idct_add8_422_8_c", "_ff_h264_idct_add8_8_c", "_ff_h264_idct_add16intra_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_v_loop_filter_luma_8_c", "_h264_h_loop_filter_luma_8_c", "_h264_h_loop_filter_luma_mbaff_8_c", "0", "0", "0", "_h264_v_loop_filter_chroma_8_c", "_h264_h_loop_filter_chroma422_8_c", "_h264_h_loop_filter_chroma_8_c", "_h264_h_loop_filter_chroma422_mbaff_8_c", "_h264_h_loop_filter_chroma_mbaff_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x8l_vertical_filter_add_9_c", "_pred8x8l_horizontal_filter_add_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x8l_vertical_filter_add_10_c", "_pred8x8l_horizontal_filter_add_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x8l_vertical_filter_add_12_c", "_pred8x8l_horizontal_filter_add_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x8l_vertical_filter_add_14_c", "_pred8x8l_horizontal_filter_add_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_pred8x8l_vertical_filter_add_8_c", "_pred8x8l_horizontal_filter_add_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_postrotate_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_worker_func", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sbr_hf_g_filt_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ps_hybrid_analysis_c", "0", "0", "0", "_ps_stereo_interpolate_c", "_ps_stereo_interpolate_ipdopd_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_vector_fmul_window_c", "_vector_fmul_add_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_viiiiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_put_h264_chroma_mc8_8_c", "_put_h264_chroma_mc8_16_c", "_put_h264_chroma_mc4_8_c", "_put_h264_chroma_mc4_16_c", "_put_h264_chroma_mc2_8_c", "_put_h264_chroma_mc2_16_c", "_put_h264_chroma_mc1_8_c", "_put_h264_chroma_mc1_16_c", "_avg_h264_chroma_mc8_8_c", "_avg_h264_chroma_mc8_16_c", "_avg_h264_chroma_mc4_8_c", "_avg_h264_chroma_mc4_16_c", "_avg_h264_chroma_mc2_8_c", "_avg_h264_chroma_mc2_16_c", "_avg_h264_chroma_mc1_8_c", "_avg_h264_chroma_mc1_16_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_weight_h264_pixels16_9_c", "_weight_h264_pixels8_9_c", "_weight_h264_pixels4_9_c", "_weight_h264_pixels2_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_weight_h264_pixels16_10_c", "_weight_h264_pixels8_10_c", "_weight_h264_pixels4_10_c", "_weight_h264_pixels2_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_weight_h264_pixels16_12_c", "_weight_h264_pixels8_12_c", "_weight_h264_pixels4_12_c", "_weight_h264_pixels2_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_weight_h264_pixels16_14_c", "_weight_h264_pixels8_14_c", "_weight_h264_pixels4_14_c", "_weight_h264_pixels2_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_weight_h264_pixels16_8_c", "_weight_h264_pixels8_8_c", "_weight_h264_pixels4_8_c", "_weight_h264_pixels2_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_sbr_hf_apply_noise_0", "_sbr_hf_apply_noise_1", "_sbr_hf_apply_noise_2", "_sbr_hf_apply_noise_3", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_image_copy_plane", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_viiiiiifi = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ps_decorrelate_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
 var debug_table_viiiiiii = ["0"];
-var debug_table_viiiiiiii = ["0"];
-var debug_table_viiiiiiiii = ["0"];
-var debug_table_viiiiiiiiii = ["0"];
+var debug_table_viiiiiiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_biweight_h264_pixels16_9_c", "_biweight_h264_pixels8_9_c", "_biweight_h264_pixels4_9_c", "_biweight_h264_pixels2_9_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_biweight_h264_pixels16_10_c", "_biweight_h264_pixels8_10_c", "_biweight_h264_pixels4_10_c", "_biweight_h264_pixels2_10_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_biweight_h264_pixels16_12_c", "_biweight_h264_pixels8_12_c", "_biweight_h264_pixels4_12_c", "_biweight_h264_pixels2_12_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_biweight_h264_pixels16_14_c", "_biweight_h264_pixels8_14_c", "_biweight_h264_pixels4_14_c", "_biweight_h264_pixels2_14_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_biweight_h264_pixels16_8_c", "_biweight_h264_pixels8_8_c", "_biweight_h264_pixels4_8_c", "_biweight_h264_pixels2_8_c", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_viiiiiiiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_h264_er_decode_mb", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+var debug_table_viiiiiiiiii = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "_ff_emulated_edge_mc_16", "_ff_emulated_edge_mc_8", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
 var debug_table_viiiiiiiiiii = ["0"];
-function nullFunc_i(x) { err("Invalid function pointer '" + x + "' called with signature 'i'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: ii: " + debug_table_ii[x] + "  iii: " + debug_table_iii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  v: " + debug_table_v[x] + "  vif: " + debug_table_vif[x] + "  vii: " + debug_table_vii[x] + "  vf: " + debug_table_vf[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_dd(x) { err("Invalid function pointer '" + x + "' called with signature 'dd'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: did: " + debug_table_did[x] + "  didd: " + debug_table_didd[x] + "  i: " + debug_table_i[x] + "  v: " + debug_table_v[x] + "  ii: " + debug_table_ii[x] + "  vf: " + debug_table_vf[x] + "  vi: " + debug_table_vi[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  vff: " + debug_table_vff[x] + "  vif: " + debug_table_vif[x] + "  vii: " + debug_table_vii[x] + "  viidi: " + debug_table_viidi[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  vfff: " + debug_table_vfff[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  vffff: " + debug_table_vffff[x] + "  vifff: " + debug_table_vifff[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_ii(x) { err("Invalid function pointer '" + x + "' called with signature 'ii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: i: " + debug_table_i[x] + "  iii: " + debug_table_iii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  vif: " + debug_table_vif[x] + "  v: " + debug_table_v[x] + "  vf: " + debug_table_vf[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  viff: " + debug_table_viff[x] + "  vff: " + debug_table_vff[x] + "  viiiii: " + debug_table_viiiii[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_did(x) { err("Invalid function pointer '" + x + "' called with signature 'did'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: didd: " + debug_table_didd[x] + "  dd: " + debug_table_dd[x] + "  i: " + debug_table_i[x] + "  ii: " + debug_table_ii[x] + "  vi: " + debug_table_vi[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  vif: " + debug_table_vif[x] + "  vii: " + debug_table_vii[x] + "  viidi: " + debug_table_viidi[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  vf: " + debug_table_vf[x] + "  v: " + debug_table_v[x] + "  vff: " + debug_table_vff[x] + "  iiiii: " + debug_table_iiiii[x] + "  vifff: " + debug_table_vifff[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  vfff: " + debug_table_vfff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_iii(x) { err("Invalid function pointer '" + x + "' called with signature 'iii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: ii: " + debug_table_ii[x] + "  iiii: " + debug_table_iiii[x] + "  i: " + debug_table_i[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viii: " + debug_table_viii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  vif: " + debug_table_vif[x] + "  viiiii: " + debug_table_viiiii[x] + "  viff: " + debug_table_viff[x] + "  vf: " + debug_table_vf[x] + "  v: " + debug_table_v[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_didd(x) { err("Invalid function pointer '" + x + "' called with signature 'didd'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: did: " + debug_table_did[x] + "  dd: " + debug_table_dd[x] + "  ii: " + debug_table_ii[x] + "  vi: " + debug_table_vi[x] + "  i: " + debug_table_i[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  vif: " + debug_table_vif[x] + "  vii: " + debug_table_vii[x] + "  viidi: " + debug_table_viidi[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  vf: " + debug_table_vf[x] + "  v: " + debug_table_v[x] + "  vff: " + debug_table_vff[x] + "  iiiii: " + debug_table_iiiii[x] + "  vifff: " + debug_table_vifff[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  vfff: " + debug_table_vfff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_iiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiiii: " + debug_table_iiiii[x] + "  i: " + debug_table_i[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  viifi: " + debug_table_viifi[x] + "  viiiii: " + debug_table_viiiii[x] + "  vif: " + debug_table_vif[x] + "  viff: " + debug_table_viff[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vf: " + debug_table_vf[x] + "  v: " + debug_table_v[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_fii(x) { err("Invalid function pointer '" + x + "' called with signature 'fii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: fiii: " + debug_table_fiii[x] + "  ii: " + debug_table_ii[x] + "  iii: " + debug_table_iii[x] + "  vii: " + debug_table_vii[x] + "  i: " + debug_table_i[x] + "  vi: " + debug_table_vi[x] + "  vf: " + debug_table_vf[x] + "  iiii: " + debug_table_iiii[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  vff: " + debug_table_vff[x] + "  iiiii: " + debug_table_iiiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  vfff: " + debug_table_vfff[x] + "  dd: " + debug_table_dd[x] + "  v: " + debug_table_v[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vifff: " + debug_table_vifff[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_iiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiii: " + debug_table_iiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  i: " + debug_table_i[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viifi: " + debug_table_viifi[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vif: " + debug_table_vif[x] + "  viff: " + debug_table_viff[x] + "  vf: " + debug_table_vf[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  v: " + debug_table_v[x] + "  vfff: " + debug_table_vfff[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_fiii(x) { err("Invalid function pointer '" + x + "' called with signature 'fiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiii: " + debug_table_iiii[x] + "  viii: " + debug_table_viii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  vf: " + debug_table_vf[x] + "  viif: " + debug_table_viif[x] + "  iiiii: " + debug_table_iiiii[x] + "  viiii: " + debug_table_viiii[x] + "  i: " + debug_table_i[x] + "  ijiii: " + debug_table_ijiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  vff: " + debug_table_vff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  vfff: " + debug_table_vfff[x] + "  dd: " + debug_table_dd[x] + "  v: " + debug_table_v[x] + "  vifff: " + debug_table_vifff[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_iiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  i: " + debug_table_i[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  vi: " + debug_table_vi[x] + "  vif: " + debug_table_vif[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viff: " + debug_table_viff[x] + "  vf: " + debug_table_vf[x] + "  vff: " + debug_table_vff[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  v: " + debug_table_v[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_i(x) { err("Invalid function pointer '" + x + "' called with signature 'i'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: ii: " + debug_table_ii[x] + "  iii: " + debug_table_iii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  v: " + debug_table_v[x] + "  did: " + debug_table_did[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  vii: " + debug_table_vii[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  didd: " + debug_table_didd[x] + "  fiii: " + debug_table_fiii[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_iiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  i: " + debug_table_i[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  vi: " + debug_table_vi[x] + "  vif: " + debug_table_vif[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viff: " + debug_table_viff[x] + "  vf: " + debug_table_vf[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  v: " + debug_table_v[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_ii(x) { err("Invalid function pointer '" + x + "' called with signature 'ii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: i: " + debug_table_i[x] + "  iii: " + debug_table_iii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  fii: " + debug_table_fii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  fiii: " + debug_table_fiii[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  v: " + debug_table_v[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  ijiii: " + debug_table_ijiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  vff: " + debug_table_vff[x] + "  viiiii: " + debug_table_viiiii[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vffff: " + debug_table_vffff[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_iiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  ii: " + debug_table_ii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  i: " + debug_table_i[x] + "  viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  vif: " + debug_table_vif[x] + "  viff: " + debug_table_viff[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  vf: " + debug_table_vf[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_iii(x) { err("Invalid function pointer '" + x + "' called with signature 'iii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: ii: " + debug_table_ii[x] + "  iiii: " + debug_table_iiii[x] + "  i: " + debug_table_i[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  fiii: " + debug_table_fiii[x] + "  viii: " + debug_table_viii[x] + "  fii: " + debug_table_fii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  ijiii: " + debug_table_ijiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  viiiii: " + debug_table_viiiii[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  v: " + debug_table_v[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_iiiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  ii: " + debug_table_ii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  i: " + debug_table_i[x] + "  viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  vif: " + debug_table_vif[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viff: " + debug_table_viff[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vf: " + debug_table_vf[x] + "  vfff: " + debug_table_vfff[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  "); abort(x) }
+function nullFunc_iiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiiii: " + debug_table_iiiii[x] + "  i: " + debug_table_i[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  fiii: " + debug_table_fiii[x] + "  viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  fii: " + debug_table_fii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  ijiii: " + debug_table_ijiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viiiii: " + debug_table_viiiii[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  v: " + debug_table_v[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_iiiiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiiii: " + debug_table_iiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  ii: " + debug_table_ii[x] + "  i: " + debug_table_i[x] + "  viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viff: " + debug_table_viff[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vf: " + debug_table_vf[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  "); abort(x) }
+function nullFunc_iiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiii: " + debug_table_iiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  i: " + debug_table_i[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiii: " + debug_table_viiii[x] + "  fiii: " + debug_table_fiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  fii: " + debug_table_fii[x] + "  vii: " + debug_table_vii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  v: " + debug_table_v[x] + "  vfff: " + debug_table_vfff[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_v(x) { err("Invalid function pointer '" + x + "' called with signature 'v'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vf: " + debug_table_vf[x] + "  vi: " + debug_table_vi[x] + "  vff: " + debug_table_vff[x] + "  vif: " + debug_table_vif[x] + "  vii: " + debug_table_vii[x] + "  vfff: " + debug_table_vfff[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  vffff: " + debug_table_vffff[x] + "  vifff: " + debug_table_vifff[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  i: " + debug_table_i[x] + "  ii: " + debug_table_ii[x] + "  iii: " + debug_table_iii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_iiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  i: " + debug_table_i[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiii: " + debug_table_viiii[x] + "  fiii: " + debug_table_fiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  fii: " + debug_table_fii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  vi: " + debug_table_vi[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  vff: " + debug_table_vff[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  v: " + debug_table_v[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_vf(x) { err("Invalid function pointer '" + x + "' called with signature 'vf'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: v: " + debug_table_v[x] + "  vff: " + debug_table_vff[x] + "  vfff: " + debug_table_vfff[x] + "  vffff: " + debug_table_vffff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  i: " + debug_table_i[x] + "  ii: " + debug_table_ii[x] + "  vifff: " + debug_table_vifff[x] + "  viifi: " + debug_table_viifi[x] + "  viii: " + debug_table_viii[x] + "  iii: " + debug_table_iii[x] + "  viffff: " + debug_table_viffff[x] + "  viiii: " + debug_table_viiii[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_iiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  i: " + debug_table_i[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiii: " + debug_table_viiii[x] + "  fiii: " + debug_table_fiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  fii: " + debug_table_fii[x] + "  vii: " + debug_table_vii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  vi: " + debug_table_vi[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  v: " + debug_table_v[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_vff(x) { err("Invalid function pointer '" + x + "' called with signature 'vff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vf: " + debug_table_vf[x] + "  vfff: " + debug_table_vfff[x] + "  v: " + debug_table_v[x] + "  vffff: " + debug_table_vffff[x] + "  viff: " + debug_table_viff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  vifff: " + debug_table_vifff[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  viifi: " + debug_table_viifi[x] + "  viffff: " + debug_table_viffff[x] + "  viii: " + debug_table_viii[x] + "  ii: " + debug_table_ii[x] + "  i: " + debug_table_i[x] + "  iii: " + debug_table_iii[x] + "  viiii: " + debug_table_viiii[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_iiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  ii: " + debug_table_ii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  i: " + debug_table_i[x] + "  viiii: " + debug_table_viiii[x] + "  fiii: " + debug_table_fiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  fii: " + debug_table_fii[x] + "  vii: " + debug_table_vii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_vfff(x) { err("Invalid function pointer '" + x + "' called with signature 'vfff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  vffff: " + debug_table_vffff[x] + "  v: " + debug_table_v[x] + "  viff: " + debug_table_viff[x] + "  vifff: " + debug_table_vifff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  viffff: " + debug_table_viffff[x] + "  vii: " + debug_table_vii[x] + "  viifi: " + debug_table_viifi[x] + "  viii: " + debug_table_viii[x] + "  ii: " + debug_table_ii[x] + "  i: " + debug_table_i[x] + "  iii: " + debug_table_iii[x] + "  viiii: " + debug_table_viiii[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_iiiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  ii: " + debug_table_ii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  i: " + debug_table_i[x] + "  viiii: " + debug_table_viiii[x] + "  fiii: " + debug_table_fiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  fii: " + debug_table_fii[x] + "  vii: " + debug_table_vii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  vi: " + debug_table_vi[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  vfff: " + debug_table_vfff[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  "); abort(x) }
 
-function nullFunc_vffff(x) { err("Invalid function pointer '" + x + "' called with signature 'vffff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vfff: " + debug_table_vfff[x] + "  vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  v: " + debug_table_v[x] + "  vifff: " + debug_table_vifff[x] + "  viff: " + debug_table_viff[x] + "  viffff: " + debug_table_viffff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  viifi: " + debug_table_viifi[x] + "  viii: " + debug_table_viii[x] + "  ii: " + debug_table_ii[x] + "  iii: " + debug_table_iii[x] + "  viiii: " + debug_table_viiii[x] + "  i: " + debug_table_i[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_iiiiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'iiiiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: iiiii: " + debug_table_iiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  ii: " + debug_table_ii[x] + "  i: " + debug_table_i[x] + "  viiii: " + debug_table_viiii[x] + "  fiii: " + debug_table_fiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  fii: " + debug_table_fii[x] + "  vii: " + debug_table_vii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  "); abort(x) }
 
-function nullFunc_vi(x) { err("Invalid function pointer '" + x + "' called with signature 'vi'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: v: " + debug_table_v[x] + "  vif: " + debug_table_vif[x] + "  vii: " + debug_table_vii[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  vifff: " + debug_table_vifff[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  i: " + debug_table_i[x] + "  ii: " + debug_table_ii[x] + "  vf: " + debug_table_vf[x] + "  iii: " + debug_table_iii[x] + "  vff: " + debug_table_vff[x] + "  iiii: " + debug_table_iiii[x] + "  vfff: " + debug_table_vfff[x] + "  iiiii: " + debug_table_iiiii[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_ijiii(x) { err("Invalid function pointer '" + x + "' called with signature 'ijiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: i: " + debug_table_i[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiii: " + debug_table_iiii[x] + "  fiii: " + debug_table_fiii[x] + "  viii: " + debug_table_viii[x] + "  fii: " + debug_table_fii[x] + "  vii: " + debug_table_vii[x] + "  iiiii: " + debug_table_iiiii[x] + "  viiii: " + debug_table_viiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  vi: " + debug_table_vi[x] + "  did: " + debug_table_did[x] + "  vif: " + debug_table_vif[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  dd: " + debug_table_dd[x] + "  vf: " + debug_table_vf[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  v: " + debug_table_v[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_vif(x) { err("Invalid function pointer '" + x + "' called with signature 'vif'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vi: " + debug_table_vi[x] + "  viff: " + debug_table_viff[x] + "  v: " + debug_table_v[x] + "  vifff: " + debug_table_vifff[x] + "  viffff: " + debug_table_viffff[x] + "  vf: " + debug_table_vf[x] + "  viif: " + debug_table_viif[x] + "  vff: " + debug_table_vff[x] + "  vii: " + debug_table_vii[x] + "  i: " + debug_table_i[x] + "  ii: " + debug_table_ii[x] + "  vfff: " + debug_table_vfff[x] + "  viii: " + debug_table_viii[x] + "  viifi: " + debug_table_viifi[x] + "  iii: " + debug_table_iii[x] + "  vffff: " + debug_table_vffff[x] + "  viiii: " + debug_table_viiii[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_v(x) { err("Invalid function pointer '" + x + "' called with signature 'v'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vf: " + debug_table_vf[x] + "  vi: " + debug_table_vi[x] + "  vff: " + debug_table_vff[x] + "  vif: " + debug_table_vif[x] + "  vii: " + debug_table_vii[x] + "  vfff: " + debug_table_vfff[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  vffff: " + debug_table_vffff[x] + "  vifff: " + debug_table_vifff[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  i: " + debug_table_i[x] + "  dd: " + debug_table_dd[x] + "  ii: " + debug_table_ii[x] + "  did: " + debug_table_did[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  didd: " + debug_table_didd[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viff(x) { err("Invalid function pointer '" + x + "' called with signature 'viff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  vifff: " + debug_table_vifff[x] + "  v: " + debug_table_v[x] + "  viffff: " + debug_table_viffff[x] + "  vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  vfff: " + debug_table_vfff[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  ii: " + debug_table_ii[x] + "  viii: " + debug_table_viii[x] + "  vffff: " + debug_table_vffff[x] + "  viifi: " + debug_table_viifi[x] + "  i: " + debug_table_i[x] + "  iii: " + debug_table_iii[x] + "  viiii: " + debug_table_viiii[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_vf(x) { err("Invalid function pointer '" + x + "' called with signature 'vf'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: v: " + debug_table_v[x] + "  vff: " + debug_table_vff[x] + "  vfff: " + debug_table_vfff[x] + "  vffff: " + debug_table_vffff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  fii: " + debug_table_fii[x] + "  i: " + debug_table_i[x] + "  dd: " + debug_table_dd[x] + "  ii: " + debug_table_ii[x] + "  vifff: " + debug_table_vifff[x] + "  viifi: " + debug_table_viifi[x] + "  viii: " + debug_table_viii[x] + "  fiii: " + debug_table_fiii[x] + "  did: " + debug_table_did[x] + "  iii: " + debug_table_iii[x] + "  viffff: " + debug_table_viffff[x] + "  viidi: " + debug_table_viidi[x] + "  viiii: " + debug_table_viiii[x] + "  didd: " + debug_table_didd[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_vifff(x) { err("Invalid function pointer '" + x + "' called with signature 'vifff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viff: " + debug_table_viff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  viffff: " + debug_table_viffff[x] + "  v: " + debug_table_v[x] + "  vfff: " + debug_table_vfff[x] + "  vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  vffff: " + debug_table_vffff[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  viifi: " + debug_table_viifi[x] + "  ii: " + debug_table_ii[x] + "  viii: " + debug_table_viii[x] + "  iii: " + debug_table_iii[x] + "  i: " + debug_table_i[x] + "  viiii: " + debug_table_viiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_vff(x) { err("Invalid function pointer '" + x + "' called with signature 'vff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vf: " + debug_table_vf[x] + "  vfff: " + debug_table_vfff[x] + "  v: " + debug_table_v[x] + "  vffff: " + debug_table_vffff[x] + "  viff: " + debug_table_viff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  vifff: " + debug_table_vifff[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  fii: " + debug_table_fii[x] + "  viifi: " + debug_table_viifi[x] + "  viffff: " + debug_table_viffff[x] + "  viii: " + debug_table_viii[x] + "  fiii: " + debug_table_fiii[x] + "  dd: " + debug_table_dd[x] + "  ii: " + debug_table_ii[x] + "  i: " + debug_table_i[x] + "  did: " + debug_table_did[x] + "  iii: " + debug_table_iii[x] + "  viidi: " + debug_table_viidi[x] + "  viiii: " + debug_table_viiii[x] + "  didd: " + debug_table_didd[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viffff(x) { err("Invalid function pointer '" + x + "' called with signature 'viffff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viff: " + debug_table_viff[x] + "  vifff: " + debug_table_vifff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  v: " + debug_table_v[x] + "  vfff: " + debug_table_vfff[x] + "  vffff: " + debug_table_vffff[x] + "  vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  viifi: " + debug_table_viifi[x] + "  viii: " + debug_table_viii[x] + "  ii: " + debug_table_ii[x] + "  iii: " + debug_table_iii[x] + "  viiii: " + debug_table_viiii[x] + "  i: " + debug_table_i[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_vfff(x) { err("Invalid function pointer '" + x + "' called with signature 'vfff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  vffff: " + debug_table_vffff[x] + "  v: " + debug_table_v[x] + "  viff: " + debug_table_viff[x] + "  vifff: " + debug_table_vifff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  viffff: " + debug_table_viffff[x] + "  vii: " + debug_table_vii[x] + "  fii: " + debug_table_fii[x] + "  viifi: " + debug_table_viifi[x] + "  viii: " + debug_table_viii[x] + "  fiii: " + debug_table_fiii[x] + "  dd: " + debug_table_dd[x] + "  ii: " + debug_table_ii[x] + "  did: " + debug_table_did[x] + "  i: " + debug_table_i[x] + "  iii: " + debug_table_iii[x] + "  viidi: " + debug_table_viidi[x] + "  viiii: " + debug_table_viiii[x] + "  didd: " + debug_table_didd[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_vii(x) { err("Invalid function pointer '" + x + "' called with signature 'vii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  v: " + debug_table_v[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  ii: " + debug_table_ii[x] + "  iii: " + debug_table_iii[x] + "  vif: " + debug_table_vif[x] + "  i: " + debug_table_i[x] + "  vf: " + debug_table_vf[x] + "  iiii: " + debug_table_iiii[x] + "  viff: " + debug_table_viff[x] + "  vff: " + debug_table_vff[x] + "  iiiii: " + debug_table_iiiii[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_vffff(x) { err("Invalid function pointer '" + x + "' called with signature 'vffff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vfff: " + debug_table_vfff[x] + "  vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  v: " + debug_table_v[x] + "  vifff: " + debug_table_vifff[x] + "  viff: " + debug_table_viff[x] + "  viffff: " + debug_table_viffff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  fii: " + debug_table_fii[x] + "  viifi: " + debug_table_viifi[x] + "  viii: " + debug_table_viii[x] + "  fiii: " + debug_table_fiii[x] + "  dd: " + debug_table_dd[x] + "  ii: " + debug_table_ii[x] + "  did: " + debug_table_did[x] + "  iii: " + debug_table_iii[x] + "  viidi: " + debug_table_viidi[x] + "  viiii: " + debug_table_viiii[x] + "  i: " + debug_table_i[x] + "  didd: " + debug_table_didd[x] + "  iiii: " + debug_table_iiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viif(x) { err("Invalid function pointer '" + x + "' called with signature 'viif'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viifi: " + debug_table_viifi[x] + "  v: " + debug_table_v[x] + "  vif: " + debug_table_vif[x] + "  ii: " + debug_table_ii[x] + "  vf: " + debug_table_vf[x] + "  viff: " + debug_table_viff[x] + "  viii: " + debug_table_viii[x] + "  iii: " + debug_table_iii[x] + "  vff: " + debug_table_vff[x] + "  iiii: " + debug_table_iiii[x] + "  vfff: " + debug_table_vfff[x] + "  vifff: " + debug_table_vifff[x] + "  viiii: " + debug_table_viiii[x] + "  i: " + debug_table_i[x] + "  iiiii: " + debug_table_iiiii[x] + "  vffff: " + debug_table_vffff[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_vi(x) { err("Invalid function pointer '" + x + "' called with signature 'vi'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: v: " + debug_table_v[x] + "  vif: " + debug_table_vif[x] + "  vii: " + debug_table_vii[x] + "  viff: " + debug_table_viff[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  vifff: " + debug_table_vifff[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  i: " + debug_table_i[x] + "  ii: " + debug_table_ii[x] + "  vf: " + debug_table_vf[x] + "  did: " + debug_table_did[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  vff: " + debug_table_vff[x] + "  dd: " + debug_table_dd[x] + "  didd: " + debug_table_didd[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  vfff: " + debug_table_vfff[x] + "  iiiii: " + debug_table_iiiii[x] + "  vffff: " + debug_table_vffff[x] + "  ijiii: " + debug_table_ijiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viifi(x) { err("Invalid function pointer '" + x + "' called with signature 'viifi'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  v: " + debug_table_v[x] + "  viii: " + debug_table_viii[x] + "  iii: " + debug_table_iii[x] + "  vif: " + debug_table_vif[x] + "  ii: " + debug_table_ii[x] + "  vf: " + debug_table_vf[x] + "  viiii: " + debug_table_viiii[x] + "  viff: " + debug_table_viff[x] + "  iiii: " + debug_table_iiii[x] + "  vff: " + debug_table_vff[x] + "  iiiii: " + debug_table_iiiii[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viiiii: " + debug_table_viiiii[x] + "  i: " + debug_table_i[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_vif(x) { err("Invalid function pointer '" + x + "' called with signature 'vif'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vi: " + debug_table_vi[x] + "  viff: " + debug_table_viff[x] + "  v: " + debug_table_v[x] + "  vifff: " + debug_table_vifff[x] + "  viffff: " + debug_table_viffff[x] + "  vf: " + debug_table_vf[x] + "  viif: " + debug_table_viif[x] + "  vff: " + debug_table_vff[x] + "  vii: " + debug_table_vii[x] + "  i: " + debug_table_i[x] + "  ii: " + debug_table_ii[x] + "  vfff: " + debug_table_vfff[x] + "  viii: " + debug_table_viii[x] + "  viifi: " + debug_table_viifi[x] + "  did: " + debug_table_did[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  vffff: " + debug_table_vffff[x] + "  viidi: " + debug_table_viidi[x] + "  viiii: " + debug_table_viiii[x] + "  didd: " + debug_table_didd[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  dd: " + debug_table_dd[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viii(x) { err("Invalid function pointer '" + x + "' called with signature 'viii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viiii: " + debug_table_viiii[x] + "  v: " + debug_table_v[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiii: " + debug_table_iiii[x] + "  viif: " + debug_table_viif[x] + "  viifi: " + debug_table_viifi[x] + "  vif: " + debug_table_vif[x] + "  vf: " + debug_table_vf[x] + "  viff: " + debug_table_viff[x] + "  iiiii: " + debug_table_iiiii[x] + "  i: " + debug_table_i[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_viff(x) { err("Invalid function pointer '" + x + "' called with signature 'viff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  vifff: " + debug_table_vifff[x] + "  v: " + debug_table_v[x] + "  viffff: " + debug_table_viffff[x] + "  vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  vfff: " + debug_table_vfff[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  ii: " + debug_table_ii[x] + "  viii: " + debug_table_viii[x] + "  vffff: " + debug_table_vffff[x] + "  viifi: " + debug_table_viifi[x] + "  i: " + debug_table_i[x] + "  did: " + debug_table_did[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  viidi: " + debug_table_viidi[x] + "  viiii: " + debug_table_viiii[x] + "  didd: " + debug_table_didd[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  dd: " + debug_table_dd[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiiii: " + debug_table_iiiii[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  vif: " + debug_table_vif[x] + "  vf: " + debug_table_vf[x] + "  viff: " + debug_table_viff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  vff: " + debug_table_vff[x] + "  i: " + debug_table_i[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  vffff: " + debug_table_vffff[x] + "  viffff: " + debug_table_viffff[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_vifff(x) { err("Invalid function pointer '" + x + "' called with signature 'vifff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viff: " + debug_table_viff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  viffff: " + debug_table_viffff[x] + "  v: " + debug_table_v[x] + "  vfff: " + debug_table_vfff[x] + "  vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  vffff: " + debug_table_vffff[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  viifi: " + debug_table_viifi[x] + "  ii: " + debug_table_ii[x] + "  viii: " + debug_table_viii[x] + "  did: " + debug_table_did[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  i: " + debug_table_i[x] + "  viidi: " + debug_table_viidi[x] + "  viiii: " + debug_table_viiii[x] + "  didd: " + debug_table_didd[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  dd: " + debug_table_dd[x] + "  iiiii: " + debug_table_iiiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  vif: " + debug_table_vif[x] + "  viff: " + debug_table_viff[x] + "  vf: " + debug_table_vf[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  i: " + debug_table_i[x] + "  vfff: " + debug_table_vfff[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_viffff(x) { err("Invalid function pointer '" + x + "' called with signature 'viffff'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viff: " + debug_table_viff[x] + "  vifff: " + debug_table_vifff[x] + "  vif: " + debug_table_vif[x] + "  vi: " + debug_table_vi[x] + "  v: " + debug_table_v[x] + "  vfff: " + debug_table_vfff[x] + "  vffff: " + debug_table_vffff[x] + "  vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  viifi: " + debug_table_viifi[x] + "  viii: " + debug_table_viii[x] + "  ii: " + debug_table_ii[x] + "  did: " + debug_table_did[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  viidi: " + debug_table_viidi[x] + "  viiii: " + debug_table_viiii[x] + "  i: " + debug_table_i[x] + "  didd: " + debug_table_didd[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  dd: " + debug_table_dd[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  ii: " + debug_table_ii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  vif: " + debug_table_vif[x] + "  viff: " + debug_table_viff[x] + "  vf: " + debug_table_vf[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  i: " + debug_table_i[x] + "  viffff: " + debug_table_viffff[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_vii(x) { err("Invalid function pointer '" + x + "' called with signature 'vii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vi: " + debug_table_vi[x] + "  viif: " + debug_table_viif[x] + "  viii: " + debug_table_viii[x] + "  v: " + debug_table_v[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  ii: " + debug_table_ii[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  vif: " + debug_table_vif[x] + "  i: " + debug_table_i[x] + "  vf: " + debug_table_vf[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  viff: " + debug_table_viff[x] + "  did: " + debug_table_did[x] + "  vff: " + debug_table_vff[x] + "  iiiii: " + debug_table_iiiii[x] + "  vifff: " + debug_table_vifff[x] + "  ijiii: " + debug_table_ijiii[x] + "  didd: " + debug_table_didd[x] + "  vfff: " + debug_table_vfff[x] + "  dd: " + debug_table_dd[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  ii: " + debug_table_ii[x] + "  vif: " + debug_table_vif[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viff: " + debug_table_viff[x] + "  vf: " + debug_table_vf[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  i: " + debug_table_i[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+function nullFunc_viidi(x) { err("Invalid function pointer '" + x + "' called with signature 'viidi'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  v: " + debug_table_v[x] + "  viii: " + debug_table_viii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  viifi: " + debug_table_viifi[x] + "  viiii: " + debug_table_viiii[x] + "  viif: " + debug_table_viif[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  did: " + debug_table_did[x] + "  iiiii: " + debug_table_iiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  vf: " + debug_table_vf[x] + "  didd: " + debug_table_didd[x] + "  viff: " + debug_table_viff[x] + "  viiiii: " + debug_table_viiiii[x] + "  dd: " + debug_table_dd[x] + "  vff: " + debug_table_vff[x] + "  i: " + debug_table_i[x] + "  vifff: " + debug_table_vifff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  vfff: " + debug_table_vfff[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vffff: " + debug_table_vffff[x] + "  viffff: " + debug_table_viffff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viifi: " + debug_table_viifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viif: " + debug_table_viif[x] + "  ii: " + debug_table_ii[x] + "  vif: " + debug_table_vif[x] + "  viff: " + debug_table_viff[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  vf: " + debug_table_vf[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  i: " + debug_table_i[x] + "  "); abort(x) }
+function nullFunc_viif(x) { err("Invalid function pointer '" + x + "' called with signature 'viif'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viifi: " + debug_table_viifi[x] + "  v: " + debug_table_v[x] + "  vif: " + debug_table_vif[x] + "  ii: " + debug_table_ii[x] + "  vf: " + debug_table_vf[x] + "  viff: " + debug_table_viff[x] + "  viii: " + debug_table_viii[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  vff: " + debug_table_vff[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  vfff: " + debug_table_vfff[x] + "  vifff: " + debug_table_vifff[x] + "  viidi: " + debug_table_viidi[x] + "  viiii: " + debug_table_viiii[x] + "  i: " + debug_table_i[x] + "  did: " + debug_table_did[x] + "  iiiii: " + debug_table_iiiii[x] + "  vffff: " + debug_table_vffff[x] + "  ijiii: " + debug_table_ijiii[x] + "  viffff: " + debug_table_viffff[x] + "  viiiii: " + debug_table_viiiii[x] + "  didd: " + debug_table_didd[x] + "  dd: " + debug_table_dd[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viiiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viifi: " + debug_table_viifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viif: " + debug_table_viif[x] + "  vif: " + debug_table_vif[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  ii: " + debug_table_ii[x] + "  viff: " + debug_table_viff[x] + "  vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  i: " + debug_table_i[x] + "  "); abort(x) }
+function nullFunc_viifi(x) { err("Invalid function pointer '" + x + "' called with signature 'viifi'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viif: " + debug_table_viif[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  v: " + debug_table_v[x] + "  viii: " + debug_table_viii[x] + "  iii: " + debug_table_iii[x] + "  vif: " + debug_table_vif[x] + "  ii: " + debug_table_ii[x] + "  vf: " + debug_table_vf[x] + "  viidi: " + debug_table_viidi[x] + "  viiii: " + debug_table_viiii[x] + "  viff: " + debug_table_viff[x] + "  iiii: " + debug_table_iiii[x] + "  fii: " + debug_table_fii[x] + "  vff: " + debug_table_vff[x] + "  iiiii: " + debug_table_iiiii[x] + "  vifff: " + debug_table_vifff[x] + "  ijiii: " + debug_table_ijiii[x] + "  fiii: " + debug_table_fiii[x] + "  vfff: " + debug_table_vfff[x] + "  viiiii: " + debug_table_viiiii[x] + "  did: " + debug_table_did[x] + "  i: " + debug_table_i[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  didd: " + debug_table_didd[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  dd: " + debug_table_dd[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viiiiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viifi: " + debug_table_viifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viif: " + debug_table_viif[x] + "  vif: " + debug_table_vif[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  ii: " + debug_table_ii[x] + "  viff: " + debug_table_viff[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vf: " + debug_table_vf[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  i: " + debug_table_i[x] + "  "); abort(x) }
+function nullFunc_viii(x) { err("Invalid function pointer '" + x + "' called with signature 'viii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viiii: " + debug_table_viiii[x] + "  v: " + debug_table_v[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  fiii: " + debug_table_fiii[x] + "  iiii: " + debug_table_iiii[x] + "  viif: " + debug_table_viif[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  vf: " + debug_table_vf[x] + "  viff: " + debug_table_viff[x] + "  iiiii: " + debug_table_iiiii[x] + "  i: " + debug_table_i[x] + "  ijiii: " + debug_table_ijiii[x] + "  did: " + debug_table_did[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  didd: " + debug_table_didd[x] + "  vfff: " + debug_table_vfff[x] + "  dd: " + debug_table_dd[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
 
-function nullFunc_viiiiiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iii: " + debug_table_iii[x] + "  viifi: " + debug_table_viifi[x] + "  viif: " + debug_table_viif[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  vif: " + debug_table_vif[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viff: " + debug_table_viff[x] + "  ii: " + debug_table_ii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  vf: " + debug_table_vf[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  i: " + debug_table_i[x] + "  "); abort(x) }
+function nullFunc_viiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viiiii: " + debug_table_viiiii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  v: " + debug_table_v[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  iiiii: " + debug_table_iiiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  fiii: " + debug_table_fiii[x] + "  viif: " + debug_table_viif[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  ijiii: " + debug_table_ijiii[x] + "  vf: " + debug_table_vf[x] + "  viff: " + debug_table_viff[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  did: " + debug_table_did[x] + "  vff: " + debug_table_vff[x] + "  i: " + debug_table_i[x] + "  vifff: " + debug_table_vifff[x] + "  didd: " + debug_table_didd[x] + "  vfff: " + debug_table_vfff[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  dd: " + debug_table_dd[x] + "  vffff: " + debug_table_vffff[x] + "  viffff: " + debug_table_viffff[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+
+function nullFunc_viiiifii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiifii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  v: " + debug_table_v[x] + "  iiii: " + debug_table_iiii[x] + "  viif: " + debug_table_viif[x] + "  iiiii: " + debug_table_iiiii[x] + "  viifi: " + debug_table_viifi[x] + "  viiiii: " + debug_table_viiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  fii: " + debug_table_fii[x] + "  iii: " + debug_table_iii[x] + "  vif: " + debug_table_vif[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viidi: " + debug_table_viidi[x] + "  fiii: " + debug_table_fiii[x] + "  viff: " + debug_table_viff[x] + "  ii: " + debug_table_ii[x] + "  vf: " + debug_table_vf[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  vff: " + debug_table_vff[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  ijiii: " + debug_table_ijiii[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  did: " + debug_table_did[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  didd: " + debug_table_didd[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  dd: " + debug_table_dd[x] + "  i: " + debug_table_i[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+
+function nullFunc_viiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iii: " + debug_table_iii[x] + "  ii: " + debug_table_ii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  fiii: " + debug_table_fiii[x] + "  viif: " + debug_table_viif[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  ijiii: " + debug_table_ijiii[x] + "  viff: " + debug_table_viff[x] + "  vf: " + debug_table_vf[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  did: " + debug_table_did[x] + "  vff: " + debug_table_vff[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  vifff: " + debug_table_vifff[x] + "  i: " + debug_table_i[x] + "  didd: " + debug_table_didd[x] + "  vfff: " + debug_table_vfff[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  dd: " + debug_table_dd[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+
+function nullFunc_viiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  fiii: " + debug_table_fiii[x] + "  viif: " + debug_table_viif[x] + "  ii: " + debug_table_ii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viff: " + debug_table_viff[x] + "  vf: " + debug_table_vf[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  did: " + debug_table_did[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  didd: " + debug_table_didd[x] + "  vfff: " + debug_table_vfff[x] + "  i: " + debug_table_i[x] + "  dd: " + debug_table_dd[x] + "  viffff: " + debug_table_viffff[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  vffff: " + debug_table_vffff[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+
+function nullFunc_viiiiiifi(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiifi'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vi: " + debug_table_vi[x] + "  v: " + debug_table_v[x] + "  iiiii: " + debug_table_iiiii[x] + "  viifi: " + debug_table_viifi[x] + "  iiii: " + debug_table_iiii[x] + "  viif: " + debug_table_viif[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  vif: " + debug_table_vif[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viidi: " + debug_table_viidi[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  fiii: " + debug_table_fiii[x] + "  viff: " + debug_table_viff[x] + "  ii: " + debug_table_ii[x] + "  vf: " + debug_table_vf[x] + "  fii: " + debug_table_fii[x] + "  vff: " + debug_table_vff[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  ijiii: " + debug_table_ijiii[x] + "  vifff: " + debug_table_vifff[x] + "  vfff: " + debug_table_vfff[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  did: " + debug_table_did[x] + "  viffff: " + debug_table_viffff[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  vffff: " + debug_table_vffff[x] + "  didd: " + debug_table_didd[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  dd: " + debug_table_dd[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  i: " + debug_table_i[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  "); abort(x) }
+
+function nullFunc_viiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  fiii: " + debug_table_fiii[x] + "  viif: " + debug_table_viif[x] + "  ii: " + debug_table_ii[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viff: " + debug_table_viff[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  vf: " + debug_table_vf[x] + "  did: " + debug_table_did[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  didd: " + debug_table_didd[x] + "  vfff: " + debug_table_vfff[x] + "  dd: " + debug_table_dd[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  i: " + debug_table_i[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  "); abort(x) }
+
+function nullFunc_viiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viii: " + debug_table_viii[x] + "  viiii: " + debug_table_viiii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  fiii: " + debug_table_fiii[x] + "  viif: " + debug_table_viif[x] + "  ii: " + debug_table_ii[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viff: " + debug_table_viff[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  vf: " + debug_table_vf[x] + "  did: " + debug_table_did[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  didd: " + debug_table_didd[x] + "  vfff: " + debug_table_vfff[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  dd: " + debug_table_dd[x] + "  i: " + debug_table_i[x] + "  "); abort(x) }
+
+function nullFunc_viiiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  fiii: " + debug_table_fiii[x] + "  viif: " + debug_table_viif[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  ii: " + debug_table_ii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viff: " + debug_table_viff[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  did: " + debug_table_did[x] + "  vff: " + debug_table_vff[x] + "  vf: " + debug_table_vf[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  vifff: " + debug_table_vifff[x] + "  didd: " + debug_table_didd[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  dd: " + debug_table_dd[x] + "  i: " + debug_table_i[x] + "  "); abort(x) }
+
+function nullFunc_viiiiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiiii: " + debug_table_viiiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iii: " + debug_table_iii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  fiii: " + debug_table_fiii[x] + "  viif: " + debug_table_viif[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  ii: " + debug_table_ii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viff: " + debug_table_viff[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  did: " + debug_table_did[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  vf: " + debug_table_vf[x] + "  didd: " + debug_table_didd[x] + "  vfff: " + debug_table_vfff[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  dd: " + debug_table_dd[x] + "  i: " + debug_table_i[x] + "  "); abort(x) }
+
+function nullFunc_viiiiiiiiiii(x) { err("Invalid function pointer '" + x + "' called with signature 'viiiiiiiiiii'. Perhaps this is an invalid value (e.g. caused by calling a virtual method on a NULL pointer)? Or calling a function with an incorrect type, which will fail? (it is worth building your source files with -Werror (warnings are errors), as warnings can indicate undefined behavior which can cause this)");  err("This pointer might make sense in another type signature: viiii: " + debug_table_viiii[x] + "  viii: " + debug_table_viii[x] + "  viiiii: " + debug_table_viiiii[x] + "  vii: " + debug_table_vii[x] + "  viiiiii: " + debug_table_viiiiii[x] + "  viiiiiii: " + debug_table_viiiiiii[x] + "  viiiiiiii: " + debug_table_viiiiiiii[x] + "  vi: " + debug_table_vi[x] + "  viiiiiiiii: " + debug_table_viiiiiiiii[x] + "  viiiiiiiiii: " + debug_table_viiiiiiiiii[x] + "  v: " + debug_table_v[x] + "  iiiii: " + debug_table_iiiii[x] + "  iiii: " + debug_table_iiii[x] + "  iiiiii: " + debug_table_iiiiii[x] + "  iiiiiii: " + debug_table_iiiiiii[x] + "  iii: " + debug_table_iii[x] + "  viidi: " + debug_table_viidi[x] + "  viifi: " + debug_table_viifi[x] + "  fiii: " + debug_table_fiii[x] + "  viif: " + debug_table_viif[x] + "  iiiiiiii: " + debug_table_iiiiiiii[x] + "  fii: " + debug_table_fii[x] + "  vif: " + debug_table_vif[x] + "  iiiiiiiii: " + debug_table_iiiiiiiii[x] + "  viiiifii: " + debug_table_viiiifii[x] + "  ijiii: " + debug_table_ijiii[x] + "  viff: " + debug_table_viff[x] + "  ii: " + debug_table_ii[x] + "  iiiiiiiiii: " + debug_table_iiiiiiiiii[x] + "  viiiiiifi: " + debug_table_viiiiiifi[x] + "  did: " + debug_table_did[x] + "  vff: " + debug_table_vff[x] + "  vifff: " + debug_table_vifff[x] + "  didd: " + debug_table_didd[x] + "  vfff: " + debug_table_vfff[x] + "  vf: " + debug_table_vf[x] + "  viffff: " + debug_table_viffff[x] + "  vffff: " + debug_table_vffff[x] + "  dd: " + debug_table_dd[x] + "  i: " + debug_table_i[x] + "  "); abort(x) }
 
 var asmGlobalArg = {}
 
-var asmLibraryArg = { "abort": abort, "setTempRet0": setTempRet0, "getTempRet0": getTempRet0, "abortStackOverflow": abortStackOverflow, "nullFunc_i": nullFunc_i, "nullFunc_ii": nullFunc_ii, "nullFunc_iii": nullFunc_iii, "nullFunc_iiii": nullFunc_iiii, "nullFunc_iiiii": nullFunc_iiiii, "nullFunc_iiiiii": nullFunc_iiiiii, "nullFunc_iiiiiii": nullFunc_iiiiiii, "nullFunc_iiiiiiii": nullFunc_iiiiiiii, "nullFunc_iiiiiiiii": nullFunc_iiiiiiiii, "nullFunc_iiiiiiiiii": nullFunc_iiiiiiiiii, "nullFunc_v": nullFunc_v, "nullFunc_vf": nullFunc_vf, "nullFunc_vff": nullFunc_vff, "nullFunc_vfff": nullFunc_vfff, "nullFunc_vffff": nullFunc_vffff, "nullFunc_vi": nullFunc_vi, "nullFunc_vif": nullFunc_vif, "nullFunc_viff": nullFunc_viff, "nullFunc_vifff": nullFunc_vifff, "nullFunc_viffff": nullFunc_viffff, "nullFunc_vii": nullFunc_vii, "nullFunc_viif": nullFunc_viif, "nullFunc_viifi": nullFunc_viifi, "nullFunc_viii": nullFunc_viii, "nullFunc_viiii": nullFunc_viiii, "nullFunc_viiiii": nullFunc_viiiii, "nullFunc_viiiiii": nullFunc_viiiiii, "nullFunc_viiiiiii": nullFunc_viiiiiii, "nullFunc_viiiiiiii": nullFunc_viiiiiiii, "nullFunc_viiiiiiiii": nullFunc_viiiiiiiii, "nullFunc_viiiiiiiiii": nullFunc_viiiiiiiiii, "nullFunc_viiiiiiiiiii": nullFunc_viiiiiiiiiii, "___assert_fail": ___assert_fail, "___call_main": ___call_main, "___clock_gettime": ___clock_gettime, "___lock": ___lock, "___setErrNo": ___setErrNo, "___syscall140": ___syscall140, "___syscall146": ___syscall146, "___syscall54": ___syscall54, "___syscall6": ___syscall6, "___unlock": ___unlock, "__cleanup_thread": __cleanup_thread, "__findCanvasEventTarget": __findCanvasEventTarget, "__findEventTarget": __findEventTarget, "__js_xhr_get_file_size": __js_xhr_get_file_size, "__js_xhr_load_file": __js_xhr_load_file, "__pthread_testcancel_js": __pthread_testcancel_js, "__spawn_thread": __spawn_thread, "_clock_gettime": _clock_gettime, "_emscripten_asm_const_i": _emscripten_asm_const_i, "_emscripten_asm_const_ii": _emscripten_asm_const_ii, "_emscripten_conditional_set_current_thread_status_js": _emscripten_conditional_set_current_thread_status_js, "_emscripten_futex_wait": _emscripten_futex_wait, "_emscripten_futex_wake": _emscripten_futex_wake, "_emscripten_get_heap_size": _emscripten_get_heap_size, "_emscripten_get_now": _emscripten_get_now, "_emscripten_get_now_is_monotonic": _emscripten_get_now_is_monotonic, "_emscripten_has_threading_support": _emscripten_has_threading_support, "_emscripten_memcpy_big": _emscripten_memcpy_big, "_emscripten_proxy_to_main_thread_js": _emscripten_proxy_to_main_thread_js, "_emscripten_receive_on_main_thread_js": _emscripten_receive_on_main_thread_js, "_emscripten_resize_heap": _emscripten_resize_heap, "_emscripten_set_canvas_element_size": _emscripten_set_canvas_element_size, "_emscripten_set_canvas_element_size_calling_thread": _emscripten_set_canvas_element_size_calling_thread, "_emscripten_set_canvas_element_size_main_thread": _emscripten_set_canvas_element_size_main_thread, "_emscripten_set_current_thread_status_js": _emscripten_set_current_thread_status_js, "_emscripten_set_offscreencanvas_size_on_target_thread": _emscripten_set_offscreencanvas_size_on_target_thread, "_emscripten_set_offscreencanvas_size_on_target_thread_js": _emscripten_set_offscreencanvas_size_on_target_thread_js, "_emscripten_set_thread_name_js": _emscripten_set_thread_name_js, "_emscripten_syscall": _emscripten_syscall, "_emscripten_webgl_create_context": _emscripten_webgl_create_context, "_exit": _exit, "_pthread_create": _pthread_create, "_pthread_exit": _pthread_exit, "_pthread_getschedparam": _pthread_getschedparam, "_pthread_join": _pthread_join, "abortOnCannotGrowMemory": abortOnCannotGrowMemory, "flush_NO_FILESYSTEM": flush_NO_FILESYSTEM, "stringToNewUTF8": stringToNewUTF8, "tempDoublePtr": tempDoublePtr, "DYNAMICTOP_PTR": DYNAMICTOP_PTR }
+var asmLibraryArg = { "abort": abort, "setTempRet0": setTempRet0, "getTempRet0": getTempRet0, "abortStackOverflow": abortStackOverflow, "nullFunc_dd": nullFunc_dd, "nullFunc_did": nullFunc_did, "nullFunc_didd": nullFunc_didd, "nullFunc_fii": nullFunc_fii, "nullFunc_fiii": nullFunc_fiii, "nullFunc_i": nullFunc_i, "nullFunc_ii": nullFunc_ii, "nullFunc_iii": nullFunc_iii, "nullFunc_iiii": nullFunc_iiii, "nullFunc_iiiii": nullFunc_iiiii, "nullFunc_iiiiii": nullFunc_iiiiii, "nullFunc_iiiiiii": nullFunc_iiiiiii, "nullFunc_iiiiiiii": nullFunc_iiiiiiii, "nullFunc_iiiiiiiii": nullFunc_iiiiiiiii, "nullFunc_iiiiiiiiii": nullFunc_iiiiiiiiii, "nullFunc_ijiii": nullFunc_ijiii, "nullFunc_v": nullFunc_v, "nullFunc_vf": nullFunc_vf, "nullFunc_vff": nullFunc_vff, "nullFunc_vfff": nullFunc_vfff, "nullFunc_vffff": nullFunc_vffff, "nullFunc_vi": nullFunc_vi, "nullFunc_vif": nullFunc_vif, "nullFunc_viff": nullFunc_viff, "nullFunc_vifff": nullFunc_vifff, "nullFunc_viffff": nullFunc_viffff, "nullFunc_vii": nullFunc_vii, "nullFunc_viidi": nullFunc_viidi, "nullFunc_viif": nullFunc_viif, "nullFunc_viifi": nullFunc_viifi, "nullFunc_viii": nullFunc_viii, "nullFunc_viiii": nullFunc_viiii, "nullFunc_viiiifii": nullFunc_viiiifii, "nullFunc_viiiii": nullFunc_viiiii, "nullFunc_viiiiii": nullFunc_viiiiii, "nullFunc_viiiiiifi": nullFunc_viiiiiifi, "nullFunc_viiiiiii": nullFunc_viiiiiii, "nullFunc_viiiiiiii": nullFunc_viiiiiiii, "nullFunc_viiiiiiiii": nullFunc_viiiiiiiii, "nullFunc_viiiiiiiiii": nullFunc_viiiiiiiiii, "nullFunc_viiiiiiiiiii": nullFunc_viiiiiiiiiii, "___assert_fail": ___assert_fail, "___buildEnvironment": ___buildEnvironment, "___call_main": ___call_main, "___clock_gettime": ___clock_gettime, "___lock": ___lock, "___setErrNo": ___setErrNo, "___syscall140": ___syscall140, "___syscall146": ___syscall146, "___syscall221": ___syscall221, "___syscall3": ___syscall3, "___syscall5": ___syscall5, "___syscall54": ___syscall54, "___syscall6": ___syscall6, "___unlock": ___unlock, "__cleanup_thread": __cleanup_thread, "__findCanvasEventTarget": __findCanvasEventTarget, "__findEventTarget": __findEventTarget, "__js_xhr_get_file_size": __js_xhr_get_file_size, "__js_xhr_load_file": __js_xhr_load_file, "__pthread_testcancel_js": __pthread_testcancel_js, "__spawn_thread": __spawn_thread, "_abort": _abort, "_clock": _clock, "_clock_gettime": _clock_gettime, "_emscripten_asm_const_i": _emscripten_asm_const_i, "_emscripten_asm_const_ii": _emscripten_asm_const_ii, "_emscripten_conditional_set_current_thread_status_js": _emscripten_conditional_set_current_thread_status_js, "_emscripten_futex_wait": _emscripten_futex_wait, "_emscripten_futex_wake": _emscripten_futex_wake, "_emscripten_get_heap_size": _emscripten_get_heap_size, "_emscripten_get_now": _emscripten_get_now, "_emscripten_get_now_is_monotonic": _emscripten_get_now_is_monotonic, "_emscripten_has_threading_support": _emscripten_has_threading_support, "_emscripten_memcpy_big": _emscripten_memcpy_big, "_emscripten_proxy_to_main_thread_js": _emscripten_proxy_to_main_thread_js, "_emscripten_receive_on_main_thread_js": _emscripten_receive_on_main_thread_js, "_emscripten_resize_heap": _emscripten_resize_heap, "_emscripten_set_canvas_element_size": _emscripten_set_canvas_element_size, "_emscripten_set_canvas_element_size_calling_thread": _emscripten_set_canvas_element_size_calling_thread, "_emscripten_set_canvas_element_size_main_thread": _emscripten_set_canvas_element_size_main_thread, "_emscripten_set_current_thread_status_js": _emscripten_set_current_thread_status_js, "_emscripten_set_offscreencanvas_size_on_target_thread": _emscripten_set_offscreencanvas_size_on_target_thread, "_emscripten_set_offscreencanvas_size_on_target_thread_js": _emscripten_set_offscreencanvas_size_on_target_thread_js, "_emscripten_set_thread_name_js": _emscripten_set_thread_name_js, "_emscripten_syscall": _emscripten_syscall, "_emscripten_webgl_create_context": _emscripten_webgl_create_context, "_exit": _exit, "_fabs": _fabs, "_getenv": _getenv, "_gettimeofday": _gettimeofday, "_gmtime_r": _gmtime_r, "_llvm_exp2_f32": _llvm_exp2_f32, "_llvm_exp2_f64": _llvm_exp2_f64, "_llvm_log2_f32": _llvm_log2_f32, "_llvm_trunc_f64": _llvm_trunc_f64, "_localtime_r": _localtime_r, "_mktime": _mktime, "_pthread_cleanup_pop": _pthread_cleanup_pop, "_pthread_cleanup_push": _pthread_cleanup_push, "_pthread_create": _pthread_create, "_pthread_exit": _pthread_exit, "_pthread_getschedparam": _pthread_getschedparam, "_pthread_join": _pthread_join, "_sysconf": _sysconf, "_tzset": _tzset, "abortOnCannotGrowMemory": abortOnCannotGrowMemory, "stringToNewUTF8": stringToNewUTF8, "tempDoublePtr": tempDoublePtr, "DYNAMICTOP_PTR": DYNAMICTOP_PTR }
 // EMSCRIPTEN_START_ASM
 var asm =Module["asm"]// EMSCRIPTEN_END_ASM
 (asmGlobalArg, asmLibraryArg, buffer);
-
-var real____emscripten_pthread_data_constructor = asm["___emscripten_pthread_data_constructor"]; asm["___emscripten_pthread_data_constructor"] = function() {
-  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
-  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
-  return real____emscripten_pthread_data_constructor.apply(null, arguments);
-};
 
 var real____errno_location = asm["___errno_location"]; asm["___errno_location"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
@@ -2937,6 +6515,30 @@ var real___emscripten_atomic_fetch_and_xor_u64 = asm["__emscripten_atomic_fetch_
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return real___emscripten_atomic_fetch_and_xor_u64.apply(null, arguments);
+};
+
+var real___get_daylight = asm["__get_daylight"]; asm["__get_daylight"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real___get_daylight.apply(null, arguments);
+};
+
+var real___get_environ = asm["__get_environ"]; asm["__get_environ"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real___get_environ.apply(null, arguments);
+};
+
+var real___get_timezone = asm["__get_timezone"]; asm["__get_timezone"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real___get_timezone.apply(null, arguments);
+};
+
+var real___get_tzname = asm["__get_tzname"]; asm["__get_tzname"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real___get_tzname.apply(null, arguments);
 };
 
 var real___register_pthread_ptr = asm["__register_pthread_ptr"]; asm["__register_pthread_ptr"] = function() {
@@ -3203,10 +6805,40 @@ var real__free = asm["_free"]; asm["_free"] = function() {
   return real__free.apply(null, arguments);
 };
 
+var real__llvm_bswap_i16 = asm["_llvm_bswap_i16"]; asm["_llvm_bswap_i16"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real__llvm_bswap_i16.apply(null, arguments);
+};
+
+var real__llvm_bswap_i32 = asm["_llvm_bswap_i32"]; asm["_llvm_bswap_i32"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real__llvm_bswap_i32.apply(null, arguments);
+};
+
+var real__llvm_round_f64 = asm["_llvm_round_f64"]; asm["_llvm_round_f64"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real__llvm_round_f64.apply(null, arguments);
+};
+
 var real__malloc = asm["_malloc"]; asm["_malloc"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return real__malloc.apply(null, arguments);
+};
+
+var real__memalign = asm["_memalign"]; asm["_memalign"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real__memalign.apply(null, arguments);
+};
+
+var real__memmove = asm["_memmove"]; asm["_memmove"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real__memmove.apply(null, arguments);
 };
 
 var real__play_or_seek = asm["_play_or_seek"]; asm["_play_or_seek"] = function() {
@@ -3227,6 +6859,12 @@ var real__pthread_self = asm["_pthread_self"]; asm["_pthread_self"] = function()
   return real__pthread_self.apply(null, arguments);
 };
 
+var real__rintf = asm["_rintf"]; asm["_rintf"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real__rintf.apply(null, arguments);
+};
+
 var real__sbrk = asm["_sbrk"]; asm["_sbrk"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3243,6 +6881,12 @@ var real_establishStackSpace = asm["establishStackSpace"]; asm["establishStackSp
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return real_establishStackSpace.apply(null, arguments);
+};
+
+var real_globalCtors = asm["globalCtors"]; asm["globalCtors"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real_globalCtors.apply(null, arguments);
 };
 
 var real_stackAlloc = asm["stackAlloc"]; asm["stackAlloc"] = function() {
@@ -3263,10 +6907,6 @@ var real_stackSave = asm["stackSave"]; asm["stackSave"] = function() {
   return real_stackSave.apply(null, arguments);
 };
 Module["asm"] = asm;
-var ___emscripten_pthread_data_constructor = Module["___emscripten_pthread_data_constructor"] = function() {
-  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
-  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
-  return Module["asm"]["___emscripten_pthread_data_constructor"].apply(null, arguments) };
 var ___errno_location = Module["___errno_location"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3295,6 +6935,22 @@ var __emscripten_atomic_fetch_and_xor_u64 = Module["__emscripten_atomic_fetch_an
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["__emscripten_atomic_fetch_and_xor_u64"].apply(null, arguments) };
+var __get_daylight = Module["__get_daylight"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["__get_daylight"].apply(null, arguments) };
+var __get_environ = Module["__get_environ"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["__get_environ"].apply(null, arguments) };
+var __get_timezone = Module["__get_timezone"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["__get_timezone"].apply(null, arguments) };
+var __get_tzname = Module["__get_tzname"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["__get_tzname"].apply(null, arguments) };
 var __register_pthread_ptr = Module["__register_pthread_ptr"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3471,14 +7127,34 @@ var _free = Module["_free"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["_free"].apply(null, arguments) };
+var _llvm_bswap_i16 = Module["_llvm_bswap_i16"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["_llvm_bswap_i16"].apply(null, arguments) };
+var _llvm_bswap_i32 = Module["_llvm_bswap_i32"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["_llvm_bswap_i32"].apply(null, arguments) };
+var _llvm_round_f64 = Module["_llvm_round_f64"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["_llvm_round_f64"].apply(null, arguments) };
 var _malloc = Module["_malloc"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["_malloc"].apply(null, arguments) };
+var _memalign = Module["_memalign"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["_memalign"].apply(null, arguments) };
 var _memcpy = Module["_memcpy"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["_memcpy"].apply(null, arguments) };
+var _memmove = Module["_memmove"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["_memmove"].apply(null, arguments) };
 var _memset = Module["_memset"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3495,6 +7171,10 @@ var _pthread_self = Module["_pthread_self"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["_pthread_self"].apply(null, arguments) };
+var _rintf = Module["_rintf"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["_rintf"].apply(null, arguments) };
 var _sbrk = Module["_sbrk"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3507,6 +7187,10 @@ var establishStackSpace = Module["establishStackSpace"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["establishStackSpace"].apply(null, arguments) };
+var globalCtors = Module["globalCtors"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["globalCtors"].apply(null, arguments) };
 var stackAlloc = Module["stackAlloc"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3519,6 +7203,26 @@ var stackSave = Module["stackSave"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["stackSave"].apply(null, arguments) };
+var dynCall_dd = Module["dynCall_dd"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["dynCall_dd"].apply(null, arguments) };
+var dynCall_did = Module["dynCall_did"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["dynCall_did"].apply(null, arguments) };
+var dynCall_didd = Module["dynCall_didd"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["dynCall_didd"].apply(null, arguments) };
+var dynCall_fii = Module["dynCall_fii"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["dynCall_fii"].apply(null, arguments) };
+var dynCall_fiii = Module["dynCall_fiii"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["dynCall_fiii"].apply(null, arguments) };
 var dynCall_i = Module["dynCall_i"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3559,6 +7263,10 @@ var dynCall_iiiiiiiiii = Module["dynCall_iiiiiiiiii"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["dynCall_iiiiiiiiii"].apply(null, arguments) };
+var dynCall_ijiii = Module["dynCall_ijiii"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["dynCall_ijiii"].apply(null, arguments) };
 var dynCall_v = Module["dynCall_v"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3603,6 +7311,10 @@ var dynCall_vii = Module["dynCall_vii"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["dynCall_vii"].apply(null, arguments) };
+var dynCall_viidi = Module["dynCall_viidi"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["dynCall_viidi"].apply(null, arguments) };
 var dynCall_viif = Module["dynCall_viif"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3619,6 +7331,10 @@ var dynCall_viiii = Module["dynCall_viiii"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["dynCall_viiii"].apply(null, arguments) };
+var dynCall_viiiifii = Module["dynCall_viiiifii"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["dynCall_viiiifii"].apply(null, arguments) };
 var dynCall_viiiii = Module["dynCall_viiiii"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3627,6 +7343,10 @@ var dynCall_viiiiii = Module["dynCall_viiiiii"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["dynCall_viiiiii"].apply(null, arguments) };
+var dynCall_viiiiiifi = Module["dynCall_viiiiiifi"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["dynCall_viiiiiifi"].apply(null, arguments) };
 var dynCall_viiiiiii = Module["dynCall_viiiiiii"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -3874,14 +7594,27 @@ function checkUnflushedContent() {
     has = true;
   }
   try { // it doesn't matter if it fails
-    var flush = flush_NO_FILESYSTEM;
+    var flush = Module['_fflush'];
     if (flush) flush(0);
+    // also flush in the JS FS layer
+    var hasFS = true;
+    if (hasFS) {
+      ['stdout', 'stderr'].forEach(function(name) {
+        var info = FS.analyzePath('/dev/' + name);
+        if (!info) return;
+        var stream = info.object;
+        var rdev = stream.rdev;
+        var tty = TTY.ttys[rdev];
+        if (tty && tty.output && tty.output.length) {
+          has = true;
+        }
+      });
+    }
   } catch(e) {}
   out = print;
   err = printErr;
   if (has) {
     warnOnce('stdio streams had content in them that was not flushed. you should set EXIT_RUNTIME to 1 (see the FAQ), or make sure to emit a newline when you printf etc.');
-    warnOnce('(this may also be due to not including full filesystem support - try building with -s FORCE_FILESYSTEM=1)');
   }
 }
 
@@ -3982,7 +7715,7 @@ function JS_XHRGetFileSize(loadPtr, url) {
                 if (content_range != undefined) {
                     size = content_range.split("/")[1];
                 }
-                console.log("C CALL JS, JS_XHRGetFileSize success, size:" + size);
+                //console.log("C CALL JS, JS_XHRGetFileSize success, size:" + size);
                 Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'string'], [loadPtr, size]);
             }
             else {
@@ -4016,13 +7749,11 @@ function JS_XHRGetFile(loadPtr, url, start, end) {
                         Module.HEAP8[ptr + i] = byteArray[i];
                     }
 
-                    console.log("C CALL JS, JS_XHRGetFile success");
+                    //console.log("C CALL JS, JS_XHRGetFile success");
                     Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, ptr, len]);
-
-                    // console.log("JS_XHRGetFile free data ptr");
                     Module._free(ptr);
                 } else {
-                    console.log("C CALL JS, JS_XHRGetFile success but no data");
+                    //console.log("C CALL JS, JS_XHRGetFile success but no data");
                     Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, 0, len]);
                 }
             }
@@ -4054,13 +7785,13 @@ function _player(c_player) {
         return;
     };
     this.play = function () {
-        Module._play(this.c_player, 0);
+        Module._play_or_seek(this.c_player, 0);
     };
     this.seek = function (time) {
-        Module._play_by_time(this.c_player, time);
+        Module._play_or_seek(this.c_player, time);
     };
     this.stop = function () {
-        Module._stop(this.c_player);
+        Module._destroy_player(this.c_player);
     };
 }
 

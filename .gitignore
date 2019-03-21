@@ -1,0 +1,9 @@
+
+*.db
+.vs/otter_player/v15/.suo
+*.db
+*.ipch
+*.db
+*.sqlite
+.vs/VSWorkspaceState.json
+.vs/otter_player/v15/.suo

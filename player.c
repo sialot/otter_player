@@ -109,15 +109,10 @@ EM_PORT_API(int) play_or_seek(OTTER_PLAYER *p, int time)
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
 		// 创建线程
-		pthread_create(&p->ts_load_thread, NULL, _media_load_start, (void *)&args);
-		pthread_create(&p->ts_demux_thread, NULL, _media_demux_start, (void *)&args);
-		pthread_create(&p->audio_decode_thread, NULL, _audio_decode_start, (void *)&args);
-		pthread_create(&p->video_decode_thread, NULL, _video_decode_start, (void *)&args);
-		pthread_join(p->video_decode_thread, NULL);
-		pthread_join(p->audio_decode_thread, NULL);
-		pthread_join(p->ts_demux_thread, NULL);
-		pthread_join(p->ts_load_thread, NULL);
-		
+		pthread_create(&p->ts_load_thread, &attr, _media_load_start, (void *)&args);
+		pthread_create(&p->ts_demux_thread, &attr, _media_demux_start, (void *)&args);
+		pthread_create(&p->audio_decode_thread, &attr, _audio_decode_start, (void *)&args);
+		pthread_create(&p->video_decode_thread, &attr, _video_decode_start, (void *)&args);
 	}
 
 	if (p->status == WORKING && p->loader->start_time != time)
@@ -341,7 +336,7 @@ void * _audio_decode_start(void * args)
 	while (p->status == WORKING)
 	{
 		FRAME_DATA *esFrame = poll_pes_pkt_by_type(p->demuxer, AUDIO);
-		printf(" AUDIO>>>> %d \n", esFrame->av_type);
+		//printf(" AUDIO>>>> %d \n", esFrame->av_type);
 
 		decode_frame(p->decoder_master, esFrame);
 		frame_data_destory(esFrame);
@@ -371,7 +366,7 @@ void * _video_decode_start(void * args)
 	{
 		FRAME_DATA *esFrame = poll_pes_pkt_by_type(p->demuxer, VIDEO);
 
-		printf(" VIDEO>>>> %d \n", esFrame->av_type);
+		//printf(" VIDEO>>>> %d \n", esFrame->av_type);
 
 		decode_frame(p->decoder_master, esFrame);
 		frame_data_destory(esFrame);

@@ -78,7 +78,7 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 	// 解析数据获得一个Packet， 从输入的数据流中分离出一帧一帧的压缩编码数据
 	int ret = av_parser_parse2(d->parser, d->context, &d->pkt->data, &d->pkt->size,
 		data, data_size,
-		pPesPkt->DTS, pPesPkt->PTS, 0);
+		pPesPkt->dtime, pPesPkt->ptime, 0);
 
 	if (ret < 0) {
 		printf("Error while parsing\n");
@@ -123,19 +123,19 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 				return -1;
 			}
 
+			// 1024
 			for (int i = 0; i < d->decoded_frame->nb_samples; i++)
 			{
 				for (int ch = 0; ch < d->context->channels; ch++)
 				{
-					memcpy(js_frame_data, d->decoded_frame->data[ch] + data_size * i, data_size);
+					memcpy(js_frame_data + (data_size * (i * 2 + ch)), d->decoded_frame->data[ch] + data_size * i, data_size);
 				}
 			}
+			FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x01, pPesPkt->dtime, pPesPkt->ptime, js_frame_data, js_frame_data_len);
+			out_frame->channels = d->context->channels;
+			priority_queue_push(queue, out_frame, out_frame->ptime);
 
-			FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x01, pPesPkt->DTS, pPesPkt->PTS, js_frame_data, js_frame_data_len);
-			priority_queue_push(queue, out_frame, out_frame->PTS);
-
-			printf("get pcm data.nb_samples:%d, channels:%d, data_size:%d, total_size:%d \n ", d->decoded_frame->nb_samples,
-				d->context->channels, (int)data_size, js_frame_data_len);
+			///printf("get pcm data.nb_samples:%d, channels:%d, data_size:%d, total_size:%d \n ", d->decoded_frame->nb_samples, d->context->channels, (int)data_size, js_frame_data_len);
 		}
 	}
 

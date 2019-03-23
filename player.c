@@ -29,7 +29,6 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 	}
 
 	p->media_start_timestamp = 0;
-	p->media_current_timestamp = 0;
 	p->current_play_time = 0;
 	p->media_duration = 0;
 	p->status = INIT_FINISH;
@@ -65,7 +64,6 @@ EM_PORT_API(int) set_media(OTTER_PLAYER *p, char * media_url, int duration)
 	_destroy_demuxer(p);
 
 	p->media_start_timestamp = 0;
-	p->media_current_timestamp = 0;
 	p->current_play_time = 0;
 	p->media_duration = 0;
 	p->media_duration = duration;
@@ -109,10 +107,23 @@ EM_PORT_API(int) play_or_seek(OTTER_PLAYER *p, int time)
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
 		// 创建线程
+		#if defined(__EMSCRIPTEN__)
 		pthread_create(&p->ts_load_thread, &attr, _media_load_start, (void *)&args);
 		pthread_create(&p->ts_demux_thread, &attr, _media_demux_start, (void *)&args);
 		pthread_create(&p->audio_decode_thread, &attr, _audio_decode_start, (void *)&args);
 		pthread_create(&p->video_decode_thread, &attr, _video_decode_start, (void *)&args);
+		#else
+		pthread_create(&p->ts_load_thread, NULL, _media_load_start, (void *)&args);
+		pthread_create(&p->ts_demux_thread, NULL, _media_demux_start, (void *)&args);
+		pthread_create(&p->audio_decode_thread, NULL, _audio_decode_start, (void *)&args);
+		pthread_create(&p->video_decode_thread, NULL, _video_decode_start, (void *)&args);
+
+		pthread_join(p->ts_load_thread, NULL);
+		pthread_join(p->ts_demux_thread, NULL);
+		pthread_join(p->audio_decode_thread, NULL);
+		pthread_join(p->video_decode_thread, NULL);
+		#endif
+
 	}
 
 	if (p->status == WORKING && p->loader->start_time != time)
@@ -123,6 +134,39 @@ EM_PORT_API(int) play_or_seek(OTTER_PLAYER *p, int time)
 	}
 
 	return 0;
+}
+
+// js获取帧数据
+EM_PORT_API(JS_FRAME *) js_poll_frame(OTTER_PLAYER *p)
+{
+	if (p->status == INIT_FINISH)
+	{
+		printf("player not working! no frame data \n");
+		return NULL;
+	}
+
+	FRAME_DATA *f = priority_queue_poll_without_wait(p->decoder_master->js_frame_queue);
+	if (f == NULL)
+	{
+		return NULL;
+	}
+
+	JS_FRAME *jframe = malloc(sizeof(JS_FRAME));
+	jframe->len = f->len;
+	jframe->cur_time = f->ptime  - p->media_start_timestamp;
+	jframe->channels = 0;
+	if (f->av_type == AUDIO)
+	{
+		jframe->channels = f->channels;
+		jframe->av_type = 0;
+	}
+	else
+	{
+		jframe->av_type = 1;
+	}
+	jframe->data = f->data;
+	free(f);
+	return jframe;
 }
 
 int _create_loader(OTTER_PLAYER * p, int time)
@@ -254,9 +298,9 @@ void _get_media_start_timestamp(OTTER_PLAYER * p)
 			while (!is_pes_queue_empty(p->demuxer) && !ibreak)
 			{
 				FRAME_DATA *pesPkt = poll_pes_pkt(p->demuxer);
-				p->media_start_timestamp = pesPkt->time_stamp;
+				p->media_start_timestamp = pesPkt->ptime;
 				ibreak = 1;
-				printf("get start_timestamp:%lld \n", p->media_start_timestamp);
+				printf("get start_timestamp:%d \n", p->media_start_timestamp);
 				break;
 			}
 		}
@@ -267,7 +311,7 @@ void _get_media_start_timestamp(OTTER_PLAYER * p)
 // 线程函数，加载文件
 void * _media_load_start(void * args)
 {
-	printf("thread start [%s]!\n", __FUNCTION__);
+	printf("thread start _media_load_start]!\n");
 	_player_thread_param *param = (_player_thread_param*)args;
 	OTTER_PLAYER *p = param->p;
 
@@ -292,7 +336,7 @@ void * _media_load_start(void * args)
 // 线程函数，解封装
 void * _media_demux_start(void * args)
 {
-	printf("thread start [%s]!\n", __FUNCTION__);
+	printf("thread start [_media_demux_start]!\n");
 	_player_thread_param *param = (_player_thread_param*)args;
 	OTTER_PLAYER *p = param->p;
 
@@ -319,7 +363,7 @@ void * _media_demux_start(void * args)
 // 线程函数，音频解码
 void * _audio_decode_start(void * args)
 {
-	printf("thread start [%s]!\n", __FUNCTION__);
+	printf("thread start [_audio_decode_start]!\n");
 	_player_thread_param *param = (_player_thread_param*)args;
 	OTTER_PLAYER *p = param->p;
 
@@ -348,7 +392,7 @@ void * _audio_decode_start(void * args)
 // 线程函数，音频解码
 void * _video_decode_start(void * args)
 {
-	printf("thread start [%s]!\n", __FUNCTION__);
+	printf("thread start [_video_decode_start]!\n");
 	_player_thread_param *param = (_player_thread_param*)args;
 	OTTER_PLAYER *p = param->p;
 

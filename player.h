@@ -26,8 +26,7 @@ typedef enum PLAY_STATUS
 // 播放器结构体
 typedef struct OTTER_PLAYER
 {
-	unsigned long long media_start_timestamp; // 媒体起始时间戳
-	unsigned long long media_current_timestamp; // 媒体当前时间戳
+	unsigned int media_start_timestamp; // 媒体起始时间戳
 	int current_play_time; // 当前播放时间
 	int media_duration; // 媒体总时长
 	PLAY_STATUS status; // 状态
@@ -51,6 +50,19 @@ int set_media(OTTER_PLAYER *p, char * media_url, int duration);
 
 // 按时间点播放
 int play_or_seek(OTTER_PLAYER *p, int time);
+
+
+typedef struct JS_FRAME
+{
+	unsigned int len :32; // 数据长度
+	unsigned int cur_time :32; // 当前时间
+	unsigned int av_type :32; // 类型
+	int channels :32;
+	unsigned char * data; // 数据
+} JS_FRAME;
+
+// js获取帧数据
+JS_FRAME * js_poll_frame(OTTER_PLAYER *p);
 
 static int _create_loader(OTTER_PLAYER *p, int time);
 static int _destroy_loader(OTTER_PLAYER *p);

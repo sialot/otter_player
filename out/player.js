@@ -1128,11 +1128,11 @@ function updateGlobalBufferViews() {
 if (!ENVIRONMENT_IS_PTHREAD) { // Pthreads have already initialized these variables in src/worker.js, where they were passed to the thread worker at startup time
 
 var STATIC_BASE = 1024,
-    STACK_BASE = 1083104,
+    STACK_BASE = 1083168,
     STACKTOP = STACK_BASE,
-    STACK_MAX = 6325984,
-    DYNAMIC_BASE = 6325984,
-    DYNAMICTOP_PTR = 1082048;
+    STACK_MAX = 6326048,
+    DYNAMIC_BASE = 6326048,
+    DYNAMICTOP_PTR = 1082112;
 
 assert(STACK_BASE % 16 === 0, 'stack must start aligned');
 assert(DYNAMIC_BASE % 16 === 0, 'heap must start aligned');
@@ -1626,7 +1626,7 @@ function _emscripten_asm_const_ii(code, a0) {
 
 
 
-// STATICTOP = STATIC_BASE + 1082080;
+// STATICTOP = STATIC_BASE + 1082144;
 /* global initializers */ if (!ENVIRONMENT_IS_PTHREAD) __ATINIT__.push({ func: function() { globalCtors() } });
 
 
@@ -1640,7 +1640,7 @@ memoryInitializer = "player.js.mem";
 
 /* no memory initializer */
 var tempDoublePtr;
-if (!ENVIRONMENT_IS_PTHREAD) tempDoublePtr = 1083088;
+if (!ENVIRONMENT_IS_PTHREAD) tempDoublePtr = 1083152;
 assert(tempDoublePtr % 8 == 0);
 
 function copyTempFloat(ptr) { // functions, because inlining this code increases code size too much
@@ -1732,7 +1732,7 @@ function copyTempDouble(ptr) {
   
   var __pthread_is_main_browser_thread=0; var PThread={MAIN_THREAD_ID:1,mainThreadInfo:{schedPolicy:0,schedPrio:0},unusedWorkerPool:[],runningWorkers:[],initMainThreadBlock:function () {
         if (ENVIRONMENT_IS_PTHREAD) return undefined;
-        PThread.mainThreadBlock = 1082288;
+        PThread.mainThreadBlock = 1082352;
   
         for (var i = 0; i < 244/4; ++i) HEAPU32[PThread.mainThreadBlock/4+i] = 0;
   
@@ -1745,7 +1745,7 @@ function copyTempDouble(ptr) {
         HEAP32[((headPtr)>>2)]=headPtr;
   
         // Allocate memory for thread-local storage.
-        var tlsMemory = 1082544;
+        var tlsMemory = 1082608;
         for (var i = 0; i < 128; ++i) HEAPU32[tlsMemory/4+i] = 0;
         Atomics.store(HEAPU32, (PThread.mainThreadBlock + 116 ) >> 2, tlsMemory); // Init thread-local-storage memory array.
         Atomics.store(HEAPU32, (PThread.mainThreadBlock + 52 ) >> 2, PThread.mainThreadBlock); // Main thread ID.
@@ -3253,11 +3253,11 @@ function copyTempDouble(ptr) {
   
   var ERRNO_CODES={EPERM:1,ENOENT:2,ESRCH:3,EINTR:4,EIO:5,ENXIO:6,E2BIG:7,ENOEXEC:8,EBADF:9,ECHILD:10,EAGAIN:11,EWOULDBLOCK:11,ENOMEM:12,EACCES:13,EFAULT:14,ENOTBLK:15,EBUSY:16,EEXIST:17,EXDEV:18,ENODEV:19,ENOTDIR:20,EISDIR:21,EINVAL:22,ENFILE:23,EMFILE:24,ENOTTY:25,ETXTBSY:26,EFBIG:27,ENOSPC:28,ESPIPE:29,EROFS:30,EMLINK:31,EPIPE:32,EDOM:33,ERANGE:34,ENOMSG:42,EIDRM:43,ECHRNG:44,EL2NSYNC:45,EL3HLT:46,EL3RST:47,ELNRNG:48,EUNATCH:49,ENOCSI:50,EL2HLT:51,EDEADLK:35,ENOLCK:37,EBADE:52,EBADR:53,EXFULL:54,ENOANO:55,EBADRQC:56,EBADSLT:57,EDEADLOCK:35,EBFONT:59,ENOSTR:60,ENODATA:61,ETIME:62,ENOSR:63,ENONET:64,ENOPKG:65,EREMOTE:66,ENOLINK:67,EADV:68,ESRMNT:69,ECOMM:70,EPROTO:71,EMULTIHOP:72,EDOTDOT:73,EBADMSG:74,ENOTUNIQ:76,EBADFD:77,EREMCHG:78,ELIBACC:79,ELIBBAD:80,ELIBSCN:81,ELIBMAX:82,ELIBEXEC:83,ENOSYS:38,ENOTEMPTY:39,ENAMETOOLONG:36,ELOOP:40,EOPNOTSUPP:95,EPFNOSUPPORT:96,ECONNRESET:104,ENOBUFS:105,EAFNOSUPPORT:97,EPROTOTYPE:91,ENOTSOCK:88,ENOPROTOOPT:92,ESHUTDOWN:108,ECONNREFUSED:111,EADDRINUSE:98,ECONNABORTED:103,ENETUNREACH:101,ENETDOWN:100,ETIMEDOUT:110,EHOSTDOWN:112,EHOSTUNREACH:113,EINPROGRESS:115,EALREADY:114,EDESTADDRREQ:89,EMSGSIZE:90,EPROTONOSUPPORT:93,ESOCKTNOSUPPORT:94,EADDRNOTAVAIL:99,ENETRESET:102,EISCONN:106,ENOTCONN:107,ETOOMANYREFS:109,EUSERS:87,EDQUOT:122,ESTALE:116,ENOTSUP:95,ENOMEDIUM:123,EILSEQ:84,EOVERFLOW:75,ECANCELED:125,ENOTRECOVERABLE:131,EOWNERDEAD:130,ESTRPIPE:86};
   
-  var _stdin; if (ENVIRONMENT_IS_PTHREAD) _stdin = PthreadWorkerInit._stdin; else PthreadWorkerInit._stdin = _stdin = 1082064;
+  var _stdin; if (ENVIRONMENT_IS_PTHREAD) _stdin = PthreadWorkerInit._stdin; else PthreadWorkerInit._stdin = _stdin = 1082128;
   
-  var _stdout; if (ENVIRONMENT_IS_PTHREAD) _stdout = PthreadWorkerInit._stdout; else PthreadWorkerInit._stdout = _stdout = 1082080;
+  var _stdout; if (ENVIRONMENT_IS_PTHREAD) _stdout = PthreadWorkerInit._stdout; else PthreadWorkerInit._stdout = _stdout = 1082144;
   
-  var _stderr; if (ENVIRONMENT_IS_PTHREAD) _stderr = PthreadWorkerInit._stderr; else PthreadWorkerInit._stderr = _stderr = 1082096;var FS={root:null,mounts:[],devices:{},streams:[],nextInode:1,nameTable:null,currentPath:"/",initialized:false,ignorePermissions:true,trackingDelegate:{},tracking:{openFlags:{READ:1,WRITE:2}},ErrnoError:null,genericErrors:{},filesystems:null,syncFSRequests:0,handleFSError:function (e) {
+  var _stderr; if (ENVIRONMENT_IS_PTHREAD) _stderr = PthreadWorkerInit._stderr; else PthreadWorkerInit._stderr = _stderr = 1082160;var FS={root:null,mounts:[],devices:{},streams:[],nextInode:1,nameTable:null,currentPath:"/",initialized:false,ignorePermissions:true,trackingDelegate:{},tracking:{openFlags:{READ:1,WRITE:2}},ErrnoError:null,genericErrors:{},filesystems:null,syncFSRequests:0,handleFSError:function (e) {
         if (!(e instanceof FS.ErrnoError)) throw e + ' : ' + stackTrace();
         return ___setErrNo(e.errno);
       },lookupPath:function (path, opts) {
@@ -5293,7 +5293,7 @@ function copyTempDouble(ptr) {
     } 
 
   
-  var __main_thread_futex_wait_address; if (ENVIRONMENT_IS_PTHREAD) __main_thread_futex_wait_address = PthreadWorkerInit.__main_thread_futex_wait_address; else PthreadWorkerInit.__main_thread_futex_wait_address = __main_thread_futex_wait_address = 1083072;function _emscripten_futex_wait(addr, val, timeout) {
+  var __main_thread_futex_wait_address; if (ENVIRONMENT_IS_PTHREAD) __main_thread_futex_wait_address = PthreadWorkerInit.__main_thread_futex_wait_address; else PthreadWorkerInit.__main_thread_futex_wait_address = __main_thread_futex_wait_address = 1083136;function _emscripten_futex_wait(addr, val, timeout) {
       if (addr <= 0 || addr > HEAP8.length || addr&3 != 0) return -22;
   //    dump('futex_wait addr:' + addr + ' by thread: ' + _pthread_self() + (ENVIRONMENT_IS_PTHREAD?'(pthread)':'') + '\n');
       if (ENVIRONMENT_IS_WORKER) {
@@ -5692,7 +5692,7 @@ function copyTempDouble(ptr) {
     }
 
   
-  var ___tm_timezone; if (ENVIRONMENT_IS_PTHREAD) ___tm_timezone = PthreadWorkerInit.___tm_timezone; else PthreadWorkerInit.___tm_timezone = ___tm_timezone = (stringToUTF8("GMT", 1082192, 4), 1082192);function _gmtime_r(time, tmPtr) {
+  var ___tm_timezone; if (ENVIRONMENT_IS_PTHREAD) ___tm_timezone = PthreadWorkerInit.___tm_timezone; else PthreadWorkerInit.___tm_timezone = ___tm_timezone = (stringToUTF8("GMT", 1082256, 4), 1082256);function _gmtime_r(time, tmPtr) {
       var date = new Date(HEAP32[((time)>>2)]*1000);
       HEAP32[((tmPtr)>>2)]=date.getUTCSeconds();
       HEAP32[(((tmPtr)+(4))>>2)]=date.getUTCMinutes();
@@ -6805,6 +6805,12 @@ var real__free = asm["_free"]; asm["_free"] = function() {
   return real__free.apply(null, arguments);
 };
 
+var real__js_poll_frame = asm["_js_poll_frame"]; asm["_js_poll_frame"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return real__js_poll_frame.apply(null, arguments);
+};
+
 var real__llvm_bswap_i16 = asm["_llvm_bswap_i16"]; asm["_llvm_bswap_i16"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -7127,6 +7133,10 @@ var _free = Module["_free"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
   return Module["asm"]["_free"].apply(null, arguments) };
+var _js_poll_frame = Module["_js_poll_frame"] = function() {
+  assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
+  assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
+  return Module["asm"]["_js_poll_frame"].apply(null, arguments) };
 var _llvm_bswap_i16 = Module["_llvm_bswap_i16"] = function() {
   assert(runtimeInitialized, 'you need to wait for the runtime to be ready (e.g. wait for main() to be called)');
   assert(!runtimeExited, 'the runtime was exited (use NO_EXIT_RUNTIME to keep it alive after main() exits)');
@@ -7770,6 +7780,149 @@ function JS_XHRGetFile(loadPtr, url, start, end) {
 // JS player类定义
 function _player(c_player) {
     this.c_player = c_player;
+    this.audio_player;
+
+    this.init = function () {
+        this.current_time = 0;
+        this.audio_player = new this.AUDIO_PLAYER(this.c_player);
+        this.audio_player._init();
+    };
+
+    this.AUDIO_PLAYER = function (c_player) {
+        this.c_player = c_player;
+        this.audio_ctx;
+        this.audio_buffer_0 = -1;
+        this.audio_buffer_1 = -1;
+        this.source_0;
+        this.source_1;
+        this.main_buffer_using = false;
+        this._init = function () {
+            let AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.audio_ctx = AudioContext ? new AudioContext() : '';
+
+        },
+        this._prepare_buffer = function () {
+
+           // console.log("_prepare_buffer start");
+            if (this.main_buffer_using) {
+                this.source_1 = undefined;
+            } else {
+                this.source_0 = undefined;
+            }
+
+            var jframePtr = Module._js_poll_frame(this.c_player);
+
+            if (jframePtr == 0)
+            {
+                console.log("no data!>>>>>>>>>>>>>>>>>>>>>>>>>");
+                setTimeout(function () { this._playSound() }.bind(this), 1000);
+                return -1;
+            }
+
+            let len = Module.HEAP32[jframePtr >> 2];
+            let cur_time = Module.HEAP32[(jframePtr >> 2) + 1];
+            let av_type = Module.HEAP32[(jframePtr >> 2) + 2];
+            let channels = Module.HEAP32[(jframePtr >> 2) + 3];
+            let dataPtr = Module.HEAP32[(jframePtr >> 2) + 4];
+
+            if (av_type != 0) {
+                Module._free(dataPtr);
+                Module._free(jframePtr);
+                this._playSound();
+                return -1;
+            }
+
+            // 数据字节数
+            var data_byte_count = len / 4; // 2048字节  两个声道
+
+            // 样本帧数 8192 /4 2048 /2 = 1024
+            var frame_count = data_byte_count / channels; // 单声道帧数
+          //  console.log("bufer_count:" + frame_count);
+            var audio_buffer = this.audio_ctx.createBuffer(channels, frame_count, this.audio_ctx.sampleRate);
+
+            // 遍历帧 1-1024
+            for (k = 0; k < frame_count; k++) {
+
+                // 声道 2
+                for (var channel = 0; channel < 2; channel++) {
+                    var nowBuffering = audio_buffer.getChannelData(channel);
+                    nowBuffering[k] = Module.HEAP32[(dataPtr >> 2) + k * 2 + channel];
+                }
+            }
+
+            if (this.main_buffer_using) {
+                this.audio_buffer_1 = audio_buffer;
+                var source = this.audio_ctx.createBufferSource();
+                var gain_node = this.audio_ctx.createGain();
+                gain_node.connect(this.audio_ctx.destination);
+                source.connect(gain_node);
+                source.buffer = this.audio_buffer_1;
+                source.addEventListener('ended', (event) => {
+                    //console.log("source_1 ended")
+                    this.main_buffer_using = !this.main_buffer_using;
+                    this._playSound();
+                });
+             
+                this.source_1 = source;
+            } else {
+                this.audio_buffer_0 = audio_buffer;
+                var source = this.audio_ctx.createBufferSource();
+                var gain_node = this.audio_ctx.createGain();
+                gain_node.connect(this.audio_ctx.destination);
+                source.connect(gain_node);
+                source.buffer = this.audio_buffer_0;
+                source.addEventListener('ended', (event) => {
+                   // console.log("source_0 ended")
+                    this.main_buffer_using = !this.main_buffer_using;
+                    this._playSound();
+                });
+                this.source_0 = source;
+            }
+
+            Module._free(dataPtr);
+            Module._free(jframePtr);
+          //  console.log("prepare buffer end");
+            return 0;
+        };
+        this._playSound = function () {
+            if (this.audio_ctx == '') {
+                return;
+            }
+
+            if (this.audio_ctx.state != 'running') {
+                this.audio_ctx.resume();
+            }
+
+            if (this.audio_buffer_0 == -1)
+            {
+                if (this._prepare_buffer() < 0)
+                {
+                    return;
+                }
+                this.main_buffer_using = !this.main_buffer_using;
+            }
+            if (this._prepare_buffer() < 0) {
+                return;
+            }
+            if (this.main_buffer_using) {
+
+                if (this.source_0)
+                {
+                   // console.log("source_0 start")
+                    this.source_0.start(0);
+                }
+
+               
+            } else {
+              
+                if (this.source_1) {
+                   // console.log("source_1 start")
+                    this.source_1.start(0);
+                }
+            }
+        }
+    };
+
     this.set_media = function (url, duration) {
         if (!url) {
             console.error("url is undefined!");
@@ -7786,6 +7939,8 @@ function _player(c_player) {
     };
     this.play = function () {
         Module._play_or_seek(this.c_player, 0);
+        //this.audio_player._playSound();
+        return;
     };
     this.seek = function (time) {
         Module._play_or_seek(this.c_player, time);
@@ -7793,18 +7948,75 @@ function _player(c_player) {
     this.stop = function () {
         Module._destroy_player(this.c_player);
     };
+   
+    this.test_poll = function () {
+        let AudioContext = window.AudioContext || window.webkitAudioContext;
+        var audio_ctx = AudioContext ? new AudioContext() : '';
+        var size = 0;
+        var ptrs = []
+        for (var i = 0; i < 10000; i++) {
+
+            var jframePtr = Module._js_poll_frame(this.c_player);
+            if (jframePtr == 0) {
+                continue;
+            }
+      
+            let len = Module.HEAP32[jframePtr >> 2];
+            let cur_time = Module.HEAP32[(jframePtr >> 2) + 1];
+            let av_type = Module.HEAP32[(jframePtr >> 2) + 2];
+            let channels = Module.HEAP32[(jframePtr >> 2) + 3];
+            let dataPtr = Module.HEAP32[(jframePtr >> 2) + 4];
+           // console.log("_js_poll_frame.cur_time:" + cur_time);
+            if (av_type != 0) {
+                continue;
+            }
+            ptrs.push({ ptr: dataPtr, len: len });
+            size = size + len;
+        }
+
+        // 样本帧数 172032
+        var bufer_count = size / 4 /2;
+        var audio_buffer = audio_ctx.createBuffer(2, bufer_count, audio_ctx.sampleRate);
+        console.log("bufer_count:" + bufer_count);
+        var index = 0;
+        console.log("ptrs.length:" + ptrs.length);
+        for (var j = 0; j < ptrs.length; j++) {
+            var data_byte_count =  ptrs[j].len / 4; // 2048
+            var single_channel_frame_count = data_byte_count / 2;
+            var dataPtr = ptrs[j].ptr;
+
+            // 遍历帧 1-1024
+            for (k = 0; k < single_channel_frame_count; k++) {
+
+                // 声道 2
+                for (var channel = 0; channel < 2; channel++) {
+                    var nowBuffering = audio_buffer.getChannelData(channel);
+                    nowBuffering[index + k] = Module.HEAP32[(dataPtr >> 2) + k * 2 + channel];
+                }
+            }
+            index = index + single_channel_frame_count;
+        }
+
+       // var gain_node = audio_ctx.createGain();
+      //  gain_node.gain.setValueAtTime(0.2, audio_ctx.currentTime);
+      //  gain_node.connect(audio_ctx.destination);
+        var source = audio_ctx.createBufferSource();
+        source.connect(audio_ctx.destination);
+        source.buffer = audio_buffer;
+        source.start(0);
+    }
 }
 
 // otter_player
 var otter_player = {
     create_player: function (width, height) {
         var c_player = Module._create_player(width, height);
-
         if (!c_player) {
             return null;
         }
-
-        return  new _player(c_player);
+        var player = new _player(c_player);
+        player.init();
+        return player;
     }
 };
 

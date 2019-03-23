@@ -66,15 +66,15 @@ int main()
 	}
 
 	int r = fileRead("C:\\1.ts"); */
-
+	/*
 	
 	OTTER_PLAYER *p = create_player(1280,720);
 	char media_url[128] = "http://10.0.9.229/pub/1.ts";
 	set_media(p, media_url, 6519);
 	play_or_seek(p, 0);
-	
+	*/
 
-	//fileRead("C:\\1.ts");
+	fileRead("C:\\1.ts");
 
 	/*long long media_file_size = 34359738368000000;
 	printf("%lld\n", media_file_size);
@@ -135,6 +135,11 @@ int fileRead(char *filePath) {
 			FRAME_DATA *pes = poll_pes_pkt(d);
 			printf("POLL PES >> length: %lld\n", pes->time_stamp);
 			decode_frame(m, pes);
+
+			FRAME_DATA *f = priority_queue_poll(m->js_frame_queue);
+
+			printf("<<<<< PTS:%lld , start_timestamp:\n", f->ptime);
+
 		}
 
 	} while (rs != 0);

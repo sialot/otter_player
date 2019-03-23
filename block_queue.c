@@ -46,9 +46,8 @@ int block_queue_push(BLOCK_QUEUE *q, void *item)
 	int tail_next = (q->tail + 1) % (q->size + 1);
 	q->items[q->tail] = item;
 	q->tail = tail_next;
-
 	pthread_mutex_unlock(&(q->data_mutex));
-	pthread_cond_broadcast(&(q->msg_cond));
+	pthread_cond_signal(&(q->msg_cond));
 	return 0;
 }
 
@@ -68,9 +67,8 @@ void * block_queue_poll(BLOCK_QUEUE *q)
 
 	void *item = q->items[q->head];
 	q->head = (q->head + 1) % (q->size + 1);
-
 	pthread_mutex_unlock(&(q->data_mutex));
-	pthread_cond_broadcast(&(q->msg_cond));
+	pthread_cond_signal(&(q->msg_cond));
 	return item;
 }
 

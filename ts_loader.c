@@ -285,8 +285,8 @@ EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, char * size)
 	//printf("_xhr_on_file_size_success, size:%lld\n", l->media_file_size);
 
 	// 通知 _wait_xhr_get_file_size 结果已返回
-	pthread_cond_signal(&l->msg_cond);
 	pthread_mutex_unlock(&l->data_mutex);
+	pthread_cond_signal(&l->msg_cond);
 }
 
 // 加载文件
@@ -315,7 +315,6 @@ void _js_xhr_load_file(TS_LOADER * l, char * url, char * start, char * end) {};
 // 回调方法
 EM_PORT_API(void) _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int len)
 {
-	pthread_mutex_lock(&l->data_mutex);
 	//printf("_xhr_on_load_success, len:%d \n", len);
 	if (len == 0)
 	{
@@ -332,7 +331,6 @@ EM_PORT_API(void) _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int
 		block_queue_push(l->ts_pkt_queue, pkt);
 	}
 	pthread_cond_signal(&l->msg_cond);
-	pthread_mutex_unlock(&l->data_mutex);
 }
 
 // 等待获取结果

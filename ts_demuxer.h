@@ -116,6 +116,8 @@ typedef struct TS_PES_PACKET
 	unsigned rep_cntrl                     :5;  // 指示交错图像中每个字段应予显示的次数，或者连续图像应予显示的次数
 	unsigned additional_copy_info          :7;  // 此 7 比特字段包含与版权信息有关的专用数据
 	unsigned previous_PES_packet_CRC       :16; // 包含产生解码器中 16 寄存器零输出的 CRC 值
+	unsigned int ptime;
+	unsigned int dtime;
 	FRAME_AV_TYPE av_type;
 	unsigned stream_type;
 } TS_PES_PACKET;

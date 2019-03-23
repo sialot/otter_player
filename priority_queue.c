@@ -1,6 +1,6 @@
 #include "priority_queue.h"
 
-FRAME_DATA * frame_data_create(FRAME_AV_TYPE av_type, unsigned stream_type, unsigned long long DTS, unsigned long long PTS, unsigned char * data, int len)
+FRAME_DATA * frame_data_create(FRAME_AV_TYPE av_type, unsigned stream_type, unsigned int dtime, unsigned int ptime, unsigned char * data, int len)
 {
 	FRAME_DATA *f = (FRAME_DATA *)malloc(sizeof(FRAME_DATA));
 	if (!f)
@@ -10,9 +10,10 @@ FRAME_DATA * frame_data_create(FRAME_AV_TYPE av_type, unsigned stream_type, unsi
 	}
 	f->av_type = av_type;
 	f->stream_type = stream_type;
+	f->channels = 0;
 	f->time_stamp = 0;
-	f->DTS = DTS;
-	f->PTS = PTS;
+	f->dtime = dtime;
+	f->ptime = ptime;
 	f->data = data;
 	f->len = len;
 	f->next = NULL;
@@ -120,6 +121,7 @@ int priority_queue_push(PRIORITY_QUEUE *q, FRAME_DATA *item, unsigned long long 
 	{
 		q->preparing = 0;
 	}
+	//printf("push %d/%d \n", q->used, q->size);
 	pthread_mutex_unlock(&(q->data_mutex));
 	pthread_cond_broadcast(&(q->msg_cond));
 	return 0;
@@ -151,6 +153,36 @@ FRAME_DATA * priority_queue_poll(PRIORITY_QUEUE *q)
 	{
 		q->preparing = 1;
 	}
+	//printf("poll %d/%d \n", q->used, q->size);
+	pthread_mutex_unlock(&(q->data_mutex));
+	pthread_cond_broadcast(&(q->msg_cond));
+	return item;
+}
+
+FRAME_DATA * priority_queue_poll_without_wait(PRIORITY_QUEUE *q)
+{
+	pthread_mutex_lock(&(q->data_mutex));
+
+	if (is_priority_queue_empty(q))
+	{
+		pthread_mutex_unlock(&(q->data_mutex));
+		return NULL;
+	}
+
+	FRAME_DATA *item = q->head;
+	if (q->head->next == NULL) //最后一个
+	{
+		q->tail = NULL;
+	}
+	q->head = q->head->next;
+	q->used--;
+
+	if (is_priority_queue_empty(q))
+	{
+		q->preparing = 1;
+	}
+
+	//printf("poll %d/%d \n", q->used, q->size);
 	pthread_mutex_unlock(&(q->data_mutex));
 	pthread_cond_broadcast(&(q->msg_cond));
 	return item;
@@ -174,7 +206,7 @@ int _is_type_ok(PRIORITY_QUEUE *q, FRAME_AV_TYPE av_type)
 FRAME_DATA * priority_queue_poll_by_type(PRIORITY_QUEUE *q, FRAME_AV_TYPE av_type)
 {
 	pthread_mutex_lock(&(q->data_mutex));
-
+	//printf("poll_by_type try %d/%d \n", q->used, q->size);
 	while (is_priority_queue_empty(q) || q->preparing || !_is_type_ok(q, av_type))
 	{
 		if (0 != pthread_cond_wait(&(q->msg_cond), &(q->data_mutex)))//队列满，等待消息被抛出,如果5秒内，没有消息被抛出，就返回
@@ -198,6 +230,7 @@ FRAME_DATA * priority_queue_poll_by_type(PRIORITY_QUEUE *q, FRAME_AV_TYPE av_typ
 	{
 		q->preparing = 1;
 	}
+	//printf("poll_by_type %d/%d \n", q->used, q->size);
 	pthread_mutex_unlock(&(q->data_mutex));
 	pthread_cond_broadcast(&(q->msg_cond));
 	return item;

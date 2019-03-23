@@ -20,11 +20,12 @@ typedef enum FRAME_AV_TYPE
 typedef struct FRAME_DATA
 {
 	int len; // 数据长度
-	unsigned char * data; // 数据
-	unsigned long long time_stamp; // 排序用时间戳
-	unsigned long long DTS;
-	unsigned long long PTS;
+	unsigned char * data ; // 数据
+	unsigned int time_stamp :32; // 排序用时间戳
+	unsigned int dtime :32;
+	unsigned int ptime :32;
 	unsigned stream_type; // 流类型
+	int channels;
 	FRAME_AV_TYPE av_type; // VIDEO， AUDIO
 	struct FRAME_DATA *next;
 	struct FRAME_DATA *prev;
@@ -42,11 +43,12 @@ typedef struct PRIORITY_QUEUE
 	pthread_cond_t msg_cond;
 } PRIORITY_QUEUE;
 
-FRAME_DATA * frame_data_create(FRAME_AV_TYPE av_type, unsigned stream_type, unsigned long long DTS, unsigned long long PTS, unsigned char * data, int len);
+FRAME_DATA * frame_data_create(FRAME_AV_TYPE av_type, unsigned stream_type, unsigned int dtime, unsigned int ptime, unsigned char * data, int len);
 void frame_data_destory(FRAME_DATA *f);
 PRIORITY_QUEUE * priority_queue_create(int size, int preSize);
 int priority_queue_push(PRIORITY_QUEUE *q, FRAME_DATA *item, unsigned long long time_stamp);
 FRAME_DATA * priority_queue_poll(PRIORITY_QUEUE *q);
+FRAME_DATA * priority_queue_poll_without_wait(PRIORITY_QUEUE *q);
 int _is_type_ok(PRIORITY_QUEUE *q, FRAME_AV_TYPE av_type);
 FRAME_DATA * priority_queue_poll_by_type(PRIORITY_QUEUE *q, FRAME_AV_TYPE av_type);
 int is_priority_queue_full(PRIORITY_QUEUE *q);

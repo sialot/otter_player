@@ -145,8 +145,15 @@ FRAME_DATA * priority_queue_poll(PRIORITY_QUEUE *q)
 	if (q->head->next == NULL) //最后一个
 	{
 		q->tail = NULL;
+		q->tail = NULL;
+
 	}
-	q->head = q->head->next;
+	else
+	{
+		q->head = q->head->next;
+		q->head->prev = NULL;
+	}
+
 	q->used--;
 
 	if (is_priority_queue_empty(q))

@@ -18,10 +18,10 @@
 #include "ts_loader.h"
 
 // 每次http请求加载的ts包数 约 100kb
-const int PKT_NUM_PER_TIME = 500;
+const int PKT_NUM_PER_TIME = 2000;
 
 // 包缓存数量 约 1mb
-const int PKT_BUFFER_COUNT = 5000;
+const int PKT_BUFFER_COUNT = 25000;
 
 FILE *tsFile = NULL;
 
@@ -112,16 +112,21 @@ void ts_loader_range_load(TS_LOADER *l)
 {
 	if (l->is_finish)
 	{
+		printf("l->is_finish  now return \n");
 		return;
 	}
 
-	_get_file_data(l);
+	long long start = l->current_range;
+	l->current_range += PKT_NUM_PER_TIME * 188;
+	long long end = l->current_range - 1;
 
-	if (l->media_file_size != 0 && l->current_range >= l->media_file_size)
-	{
-		printf("l->current_range >= l->media_file_size .is_finish = 1\n");
-		l->is_finish = 1;
-	}
+	char startc[30];
+	sprintf(startc, "%lld", start);
+	char endc[30];
+	sprintf(endc, "%lld", end);
+
+	// 调用js函数
+	_js_xhr_load_file(l, l->media_url, startc, endc);
 }
 #else
 void ts_loader_range_load(TS_LOADER * l)
@@ -139,8 +144,7 @@ void ts_loader_range_load(TS_LOADER * l)
 	int len = 188 * PKT_NUM_PER_TIME;
 	if (rs == 0)
 	{
-		printf("len=0.is_finish = 1\n");
-		l->is_finish = 1;
+		printf("len=0.\n");
 		return;
 	}
 
@@ -175,7 +179,7 @@ void ts_loader_seek(TS_LOADER * l, int start_time)
 	{
 		l->current_range = l->media_file_size;
 		printf("loader->start_time > loader->duration.is_finish = 1\n");
-		l->is_finish = 1;
+		return;
 	}
 
 	if (l->media_file_size > 0 && l->duration > 0)
@@ -241,23 +245,6 @@ void _get_file_size(TS_LOADER * l)
 }
 #endif
 
-// 获取文件数据
-void _get_file_data(TS_LOADER * l)
-{
-	_thread_param args;
-	args.loaderPointer = l;
-	args.start = l->current_range;
-	args.end = l->current_range + PKT_NUM_PER_TIME * 188 - 1;
-	l->current_range += PKT_NUM_PER_TIME * 188;
-
-	//printf("_get_file_data start, range: %lld - %lld / %lld \n", args.start, args.end, l->media_file_size);
-
-	pthread_create(&l->wait_http_thread, NULL, _wait_http_result, (void *)&args);
-	pthread_create(&l->http_thread, NULL, _call_xhr_load_file, (void *)&args);
-	pthread_join(l->http_thread, NULL);
-	pthread_join(l->wait_http_thread, NULL);
-}
-
 // 获取文件大小
 void *_call_xhr_get_file_size(void * args)
 {
@@ -282,27 +269,11 @@ EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, char * size)
 {
 	pthread_mutex_lock(&l->data_mutex);
 	l->media_file_size = _char_to_longlong(size);
-	//printf("_xhr_on_file_size_success, size:%lld\n", l->media_file_size);
+	printf("_xhr_on_file_size_success, size:%lld\n", l->media_file_size);
 
 	// 通知 _wait_xhr_get_file_size 结果已返回
 	pthread_mutex_unlock(&l->data_mutex);
 	pthread_cond_signal(&l->msg_cond);
-}
-
-// 加载文件
-void *_call_xhr_load_file(void * args)
-{
-	_thread_param param = *(_thread_param *)args;
-	TS_LOADER *l = param.loaderPointer;
-
-	char start[30];
-	sprintf(start, "%lld", param.start);
-	char end[30];
-	sprintf(end, "%lld", param.end);
-
-	// 调用js函数
-	_js_xhr_load_file(l, l->media_url, start, end);
-	return NULL;
 }
 
 // 调用加载
@@ -323,6 +294,26 @@ EM_PORT_API(void) _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int
 		return;
 	}
 
+	_thread_param args;
+	args.bytes = bytes;
+	args.len = len;
+	args.loaderPointer = l;
+
+	// 设置线程属性
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+	pthread_create(&l->http_thread, &attr, _push_file_data, &args);
+}
+
+// 回调线程，保存数据
+void *_push_file_data(void * args)
+{
+	_thread_param *p = (_thread_param *)args;
+	TS_LOADER *l = p->loaderPointer;
+	int len = p->len;
+	unsigned char * bytes = p->bytes;
+
 	for (int i = 0; i < len / 188; i++)
 	{
 		unsigned char * data = bytes + i * 188;
@@ -330,7 +321,18 @@ EM_PORT_API(void) _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int
 		byte_list_add_list(pkt, data, 188);
 		block_queue_push(l->ts_pkt_queue, pkt);
 	}
-	pthread_cond_signal(&l->msg_cond);
+
+	free(bytes);
+
+	if (l->media_file_size != 0 && l->current_range >= l->media_file_size)
+	{
+		printf("l->current_range >= l->media_file_size .is_finish = 1\n");
+		l->is_finish = 1;
+	}
+	else {
+		ts_loader_range_load(l);
+	}
+	return NULL;
 }
 
 // 等待获取结果

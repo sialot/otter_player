@@ -14,7 +14,6 @@ function JS_XHRGetFileSize(loadPtr, url) {
                 if (content_range != undefined) {
                     size = content_range.split("/")[1];
                 }
-                //console.log("C CALL JS, JS_XHRGetFileSize success, size:" + size);
                 Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'string'], [loadPtr, size]);
             }
             else {
@@ -48,11 +47,8 @@ function JS_XHRGetFile(loadPtr, url, start, end) {
                         Module.HEAP8[ptr + i] = byteArray[i];
                     }
 
-                    //console.log("C CALL JS, JS_XHRGetFile success");
                     Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, ptr, len]);
-                    Module._free(ptr);
                 } else {
-                    //console.log("C CALL JS, JS_XHRGetFile success but no data");
                     Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, 0, len]);
                 }
             }
@@ -92,7 +88,6 @@ function _player(c_player) {
         },
         this._prepare_buffer = function () {
 
-           // console.log("_prepare_buffer start");
             if (this.main_buffer_using) {
                 this.source_1 = undefined;
             } else {
@@ -256,7 +251,6 @@ function _player(c_player) {
             let av_type = Module.HEAP32[(jframePtr >> 2) + 2];
             let channels = Module.HEAP32[(jframePtr >> 2) + 3];
             let dataPtr = Module.HEAP32[(jframePtr >> 2) + 4];
-           // console.log("_js_poll_frame.cur_time:" + cur_time);
             if (av_type != 0) {
                 continue;
             }
@@ -287,9 +281,6 @@ function _player(c_player) {
             index = index + single_channel_frame_count;
         }
 
-       // var gain_node = audio_ctx.createGain();
-      //  gain_node.gain.setValueAtTime(0.2, audio_ctx.currentTime);
-      //  gain_node.connect(audio_ctx.destination);
         var source = audio_ctx.createBufferSource();
         source.connect(audio_ctx.destination);
         source.buffer = audio_buffer;

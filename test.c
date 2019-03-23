@@ -10,7 +10,7 @@
 //#include "block_queue.h"
 #include "player.h"
 
-int fileRead(char *filePath);
+int fileRead(char *filePath, char *outPath);
 long long my_atoll(char *instr);
 #ifdef _DEBUG  
 #define new new(_NORMAL_BLOCK, __FILE__, __LINE__)  
@@ -66,15 +66,15 @@ int main()
 	}
 
 	int r = fileRead("C:\\1.ts"); */
-	/*
+	
 	
 	OTTER_PLAYER *p = create_player(1280,720);
 	char media_url[128] = "http://10.0.9.229/pub/1.ts";
 	set_media(p, media_url, 6519);
 	play_or_seek(p, 0);
-	*/
+	
 
-	fileRead("C:\\1.ts");
+	//fileRead("C:\\1.ts","E:\\1.pcm");
 
 	/*long long media_file_size = 34359738368000000;
 	printf("%lld\n", media_file_size);
@@ -110,13 +110,20 @@ long long my_atoll(char *instr)
 	}
 	return retval;
 }
-int fileRead(char *filePath) {
+int fileRead(char *filePath, char *outPath) {
 	printf("%s\n", filePath);
 	FILE *tsFile = NULL;
-
 	if ((tsFile = fopen(filePath, "rb")) == NULL)
 	{
 		printf("file not exist!\n");
+	}
+
+	FILE *outfile;
+	printf("%s\n", outPath);
+	outfile = fopen(outPath, "wb");
+	if (!outfile) {
+		printf("file not exist!\n");
+		return -1;
 	}
 
 	size_t rs = 0;
@@ -133,13 +140,17 @@ int fileRead(char *filePath) {
 		while (!is_pes_queue_empty(d))
 		{
 			FRAME_DATA *pes = poll_pes_pkt(d);
-			printf("POLL PES >> length: %lld\n", pes->time_stamp);
+			printf("POLL PES << av_type: %lld\n", pes->av_type);
 			decode_frame(m, pes);
 
-			FRAME_DATA *f = priority_queue_poll(m->js_frame_queue);
+			while (!is_priority_queue_empty(m->js_frame_queue)) {
 
-			printf("<<<<< PTS:%lld , start_timestamp:\n", f->ptime);
-
+				FRAME_DATA *f = priority_queue_poll(m->js_frame_queue);
+				printf("<<<<< PCM:%lld \n", f->ptime);
+				fwrite(f->data, 1, f->len, outfile);
+				free(f->data);
+				free(f);
+			}
 		}
 
 	} while (rs != 0);

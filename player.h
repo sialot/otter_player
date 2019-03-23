@@ -51,7 +51,6 @@ int set_media(OTTER_PLAYER *p, char * media_url, int duration);
 // 按时间点播放
 int play_or_seek(OTTER_PLAYER *p, int time);
 
-
 typedef struct JS_FRAME
 {
 	unsigned int len :32; // 数据长度
@@ -71,9 +70,6 @@ static int _destroy_demuxer(OTTER_PLAYER *p);
 static int _create_decoder_master(OTTER_PLAYER *p);
 static int _destroy_decoder_master(OTTER_PLAYER *p);
 
-// 获取媒体起始时间戳
-static void _get_media_start_timestamp(OTTER_PLAYER *p);
-
 // 多线程参数
 typedef struct _player_thread_param
 {
@@ -81,8 +77,6 @@ typedef struct _player_thread_param
 } _player_thread_param;
 
 // TREAD FUNCTIONS
-// 线程函数，加载文件
-void *_media_load_start(void * args);
 
 // 线程函数，解封装
 void *_media_demux_start(void * args);

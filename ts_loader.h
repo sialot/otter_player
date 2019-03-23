@@ -28,14 +28,6 @@ typedef struct TS_LOADER
 	BLOCK_QUEUE *ts_pkt_queue;      // ts包缓存队列
 } TS_LOADER;
 
-// 多线程参数
-typedef struct _thread_param
-{
-	TS_LOADER * loaderPointer;      // 加载器指针
-	long long start;                      // http请求range起始位置  
-	long long end;                        // http请求range结束位置
-} _thread_param;
-
 // 创建加载器
 TS_LOADER * ts_loader_create(char *pMediaUrl, int duration, int start_time);
 
@@ -57,9 +49,6 @@ void ts_loader_destroy(TS_LOADER *l);
 // 获取文件大小
 void _get_file_size(TS_LOADER * l);
 
-// 获取文件数据
-void _get_file_data(TS_LOADER * l);
-
 // 线程函数，获取文件大小
 void *_call_xhr_get_file_size(void * args);
 
@@ -69,14 +58,21 @@ void _js_xhr_get_file_size(TS_LOADER * l, char * url);
 // js回调，获取文件大小
 void _xhr_on_file_size_success(TS_LOADER *l, char * size);
 
-// 线程函数，加载文件
-void *_call_xhr_load_file(void * args);
-
 // js方法，调用xmlhttprequest
 void _js_xhr_load_file(TS_LOADER * l, char * url, char * start, char * end);
 
 // js回调，获取文件数据
 void _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int len);
+
+// 多线程参数
+typedef struct _thread_param
+{
+	TS_LOADER * loaderPointer;      // 加载器指针
+	unsigned char * bytes;                      // http请求range起始位置  
+	int len;                        // http请求range结束位置
+} _thread_param;
+
+void *_push_file_data(void * args);
 
 // 等待http返回结果
 void *_wait_http_result(void * args);

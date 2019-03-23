@@ -103,14 +103,13 @@ function _player(c_player) {
 
             if (jframePtr == 0)
             {
-                console.log("no data!>>>>>>>>>>>>>>>>>>>>>>>>>");
                 setTimeout(function () { this._playSound() }.bind(this), 1000);
                 return -1;
             }
 
-            let len = Module.HEAP32[jframePtr >> 2];
-            let cur_time = Module.HEAP32[(jframePtr >> 2) + 1];
-            let av_type = Module.HEAP32[(jframePtr >> 2) + 2];
+            let len = Module.HEAPU32[jframePtr >> 2];
+            let cur_time = Module.HEAPU32[(jframePtr >> 2) + 1];
+            let av_type = Module.HEAPU32[(jframePtr >> 2) + 2];
             let channels = Module.HEAP32[(jframePtr >> 2) + 3];
             let dataPtr = Module.HEAP32[(jframePtr >> 2) + 4];
 
@@ -135,7 +134,7 @@ function _player(c_player) {
                 // ÉùµÀ 2
                 for (var channel = 0; channel < 2; channel++) {
                     var nowBuffering = audio_buffer.getChannelData(channel);
-                    nowBuffering[k] = Module.HEAP32[(dataPtr >> 2) + k * 2 + channel];
+                    nowBuffering[k] = Module.HEAPF32[(dataPtr >> 2) + k * 2 + channel];
                 }
             }
 
@@ -228,7 +227,7 @@ function _player(c_player) {
     };
     this.play = function () {
         Module._play_or_seek(this.c_player, 0);
-        //this.audio_player._playSound();
+        this.audio_player._playSound();
         return;
     };
     this.seek = function (time) {
@@ -241,6 +240,8 @@ function _player(c_player) {
     this.test_poll = function () {
         let AudioContext = window.AudioContext || window.webkitAudioContext;
         var audio_ctx = AudioContext ? new AudioContext() : '';
+
+        console.log(audio_ctx.sampleRate);
         var size = 0;
         var ptrs = []
         for (var i = 0; i < 10000; i++) {
@@ -280,7 +281,7 @@ function _player(c_player) {
                 // ÉùµÀ 2
                 for (var channel = 0; channel < 2; channel++) {
                     var nowBuffering = audio_buffer.getChannelData(channel);
-                    nowBuffering[index + k] = Module.HEAP32[(dataPtr >> 2) + k * 2 + channel];
+                    nowBuffering[index + k] = Module.HEAPF32[(dataPtr >> 2) + k * 2 + channel];
                 }
             }
             index = index + single_channel_frame_count;

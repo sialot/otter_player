@@ -145,8 +145,6 @@ FRAME_DATA * priority_queue_poll(PRIORITY_QUEUE *q)
 	if (q->head->next == NULL) //最后一个
 	{
 		q->tail = NULL;
-		q->tail = NULL;
-
 	}
 	else
 	{
@@ -181,7 +179,11 @@ FRAME_DATA * priority_queue_poll_without_wait(PRIORITY_QUEUE *q)
 	{
 		q->tail = NULL;
 	}
-	q->head = q->head->next;
+	else
+	{
+		q->head = q->head->next;
+		q->head->prev = NULL;
+	}
 	q->used--;
 
 	if (is_priority_queue_empty(q))
@@ -225,10 +227,14 @@ FRAME_DATA * priority_queue_poll_by_type(PRIORITY_QUEUE *q, FRAME_AV_TYPE av_typ
 	}
 
 	FRAME_DATA *item = q->head;
-
 	if (q->head->next == NULL) //最后一个
 	{
 		q->tail = NULL;
+	}
+	else
+	{
+		q->head = q->head->next;
+		q->head->prev = NULL;
 	}
 	q->head = q->head->next;
 	q->used--;

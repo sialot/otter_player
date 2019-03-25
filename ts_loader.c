@@ -271,7 +271,7 @@ EM_PORT_API(void) _xhr_on_file_size_success(TS_LOADER * l, char * size)
 {
 	pthread_mutex_lock(&l->data_mutex);
 	l->media_file_size = _char_to_longlong(size);
-	printf("_xhr_on_file_size_success, size:%lld\n", l->media_file_size);
+	//printf("_xhr_on_file_size_success, size:%lld\n", l->media_file_size);
 
 	// 通知 _wait_xhr_get_file_size 结果已返回
 	pthread_mutex_unlock(&l->data_mutex);

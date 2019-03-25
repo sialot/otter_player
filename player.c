@@ -43,7 +43,7 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 // Éè¶¨Ã½Ìå
 EM_PORT_API(int) set_media(OTTER_PLAYER *p, char * media_url, int duration)
 {
-	printf("set media start >>url:%s, duration:%d\n", p->media_url, duration);
+	//printf("set media start >>url:%s, duration:%d\n", p->media_url, duration);
 
 	if (p == NULL) {
 		printf("player is null!\n");
@@ -77,7 +77,7 @@ EM_PORT_API(int) set_media(OTTER_PLAYER *p, char * media_url, int duration)
 		return -1;
 	}
 
-	printf("set media complete!\n");
+	printf("player is ready !\n");
 	return 0;
 }
 

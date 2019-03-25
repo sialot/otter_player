@@ -193,7 +193,6 @@ FRAME_DATA * priority_queue_poll_without_wait(PRIORITY_QUEUE *q)
 		q->preparing = 1;
 	}
 
-	//printf("poll %d/%d \n", q->used, q->size);
 	pthread_mutex_unlock(&(q->data_mutex));
 	pthread_cond_broadcast(&(q->msg_cond));
 	return item;

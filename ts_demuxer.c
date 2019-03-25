@@ -41,7 +41,7 @@ TS_DEMUXER * ts_demuxer_create()
 	}
 	d->pkt_queue = pkt_queue;
 
-	printf("ts_demuxer_create complete! \n");
+	//printf("ts_demuxer_create complete! \n");
 	return d;
 }
 

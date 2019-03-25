@@ -117,8 +117,10 @@ void ts_loader_range_load(TS_LOADER *l)
 	}
 
 	long long start = l->current_range;
-	l->current_range += PKT_NUM_PER_TIME * 188;
-	long long end = l->current_range - 1;
+	long long end = start + PKT_NUM_PER_TIME * 188 - 1;
+	if (end > l->media_file_size) {
+		end = l->media_file_size;
+	}
 
 	char startc[30];
 	sprintf(startc, "%lld", start);
@@ -305,6 +307,7 @@ EM_PORT_API(void) _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	pthread_create(&l->http_thread, &attr, _push_file_data, &args);
 }
+int pkt_num = 0;
 
 // 回调线程，保存数据
 void *_push_file_data(void * args)
@@ -320,18 +323,21 @@ void *_push_file_data(void * args)
 		BYTE_LIST *pkt = byte_list_create(188);
 		byte_list_add_list(pkt, data, 188);
 		block_queue_push(l->ts_pkt_queue, pkt);
+		pkt_num++;
+	}
+	l->current_range += PKT_NUM_PER_TIME * 188;
+	if (l->media_file_size != 0 && l->current_range >= l->media_file_size)
+	{
+		printf("pkt_num:%d \n", pkt_num);
+		printf("l->current_range >= l->media_file_size .is_finish = 1. %lld, %lld\n", l->current_range, l->media_file_size);
+		l->is_finish = 1;
+	}
+	else 
+	{
+		ts_loader_range_load(l);
 	}
 
 	free(bytes);
-
-	if (l->media_file_size != 0 && l->current_range >= l->media_file_size)
-	{
-		printf("l->current_range >= l->media_file_size .is_finish = 1\n");
-		l->is_finish = 1;
-	}
-	else {
-		ts_loader_range_load(l);
-	}
 	return NULL;
 }
 

@@ -75,135 +75,131 @@ function _player(c_player) {
 
     this.AUDIO_PLAYER = function (c_player) {
         this.c_player = c_player;
+        this.MERGE_COUNT = 48;
         this.audio_ctx;
-        this.audio_buffer_0 = -1;
-        this.audio_buffer_1 = -1;
-        this.source_0;
-        this.source_1;
-        this.main_buffer_using = false;
+        this.retry = !1;
+        this.last_duration = 0; // 上一帧时长
+        this.last_start_time = 0; // 上一帧开始时间
+        this.last_try_time = 0;
+        this.finish = 0;
         this._init = function () {
             let AudioContext = window.AudioContext || window.webkitAudioContext;
             this.audio_ctx = AudioContext ? new AudioContext() : '';
-
+            this.status = 0;
         },
-        this._prepare_buffer = function () {
+        this.play = function () {
 
-            if (this.main_buffer_using) {
-                this.source_1 = undefined;
+            if (this.finish) {
+                console.log("audio finish!");
+                return;
+            }
+
+            var now = performance.now();
+            if (this.retry) {
+                if ((now - this.last_try_time) > 1000) {
+                    this.retry = !1;
+                    this.last_try_time = 0;
+                    this._prepare_source();
+                }
             } else {
-                this.source_0 = undefined;
+
+                // 上一个起播 100ms之后，准备下一个
+                if ( (this.last_start_time + this.last_duration - now) <= 500) {
+                    this._prepare_source();
+                }
             }
 
-            var jframePtr = Module._js_poll_frame(this.c_player);
-
-            if (jframePtr == 0)
-            {
-                setTimeout(function () { this._playSound() }.bind(this), 1000);
-                return -1;
+            if (this.last_start_time!=0 && (this.last_start_time + this.last_duration - now) < -1000) {
+                this.finish = 1;
             }
 
-            let len = Module.HEAPU32[jframePtr >> 2];
-            let cur_time = Module.HEAPU32[(jframePtr >> 2) + 1];
-            let av_type = Module.HEAPU32[(jframePtr >> 2) + 2];
-            let channels = Module.HEAP32[(jframePtr >> 2) + 3];
-            let dataPtr = Module.HEAP32[(jframePtr >> 2) + 4];
+            var id = requestAnimationFrame(function () { this.play() }.bind(this));
+        },
+        this._prepare_source = function () {
+           // console.log("prepare in!");
+            var jframe_arr = new Array(this.MERGE_COUNT);
+            var jframe_count = 0;
+            var data_byte_count = 0;
+            var total_frame_count = 0; // 单声道帧数
+            var audio_buffer;
+            var channels;
+            for (var i = 0; i < this.MERGE_COUNT; i++) {
+                var jframePtr = Module._js_poll_frame(this.c_player);
 
-            if (av_type != 0) {
+                if (jframePtr == 0) {
+                    continue;
+                }
+                this.count++;
+                let len = Module.HEAPU32[jframePtr >> 2];
+                let cur_time = Module.HEAPU32[(jframePtr >> 2) + 1];
+                let av_type = Module.HEAPU32[(jframePtr >> 2) + 2];
+                channels = Module.HEAP32[(jframePtr >> 2) + 3];
+
+                if (av_type != 0) {
+                    Module._free(dataPtr);
+                    Module._free(jframePtr);
+                    continue;
+                }
+
+                // 样本帧数
+                total_frame_count += len / 4 / channels; // 单声道帧数
+
+                jframe_arr[i] = jframePtr;
+                jframe_count++;
+            }
+
+            if (jframe_count == 0) {         
+                this.retry = !0;
+                this.last_try_time = performance.now();
+               // console.log("goto retry! this.last_try_time:" + this.last_try_time);
+                return;
+            }
+
+            audio_buffer = this.audio_ctx.createBuffer(channels, total_frame_count, this.audio_ctx.sampleRate);
+
+            let idx = 0;
+            for (var i = 0; i < jframe_count; i++) {
+                let jframePtr = jframe_arr[i];
+                let len = Module.HEAPU32[jframePtr >> 2];
+                let dataPtr = Module.HEAP32[(jframePtr >> 2) + 4];
+                let frame_count = len / 4 / channels;
+
+                // 遍历帧 1-1024
+                for (k = 0; k < frame_count; k++) {
+
+                    // 声道 2
+                    for (var channel = 0; channel < 2; channel++) {
+                        var nowBuffering = audio_buffer.getChannelData(channel);
+                        nowBuffering[k + idx] = Module.HEAPF32[(dataPtr >> 2) + k * 2 + channel];
+                    }
+                }
+                idx += frame_count;
+
                 Module._free(dataPtr);
                 Module._free(jframePtr);
-                this._playSound();
-                return -1;
             }
 
-            // 数据字节数
-            var data_byte_count = len / 4; // 2048字节  两个声道
+            var source = this.audio_ctx.createBufferSource();
+            var gain_node = this.audio_ctx.createGain();
+            gain_node.connect(this.audio_ctx.destination);
+            source.connect(gain_node);
+            source.buffer = audio_buffer;
 
-            // 样本帧数 8192 /4 2048 /2 = 1024
-            var frame_count = data_byte_count / channels; // 单声道帧数
-          //  console.log("bufer_count:" + frame_count);
-            var audio_buffer = this.audio_ctx.createBuffer(channels, frame_count, this.audio_ctx.sampleRate);
-
-            // 遍历帧 1-1024
-            for (k = 0; k < frame_count; k++) {
-
-                // 声道 2
-                for (var channel = 0; channel < 2; channel++) {
-                    var nowBuffering = audio_buffer.getChannelData(channel);
-                    nowBuffering[k] = Module.HEAPF32[(dataPtr >> 2) + k * 2 + channel];
-                }
+            var future_time;
+         
+            // 当前为第一时间片
+            var now = performance.now();
+            if (this.last_start_time == 0) {
+                this.last_start_time = now;
             }
-
-            if (this.main_buffer_using) {
-                this.audio_buffer_1 = audio_buffer;
-                var source = this.audio_ctx.createBufferSource();
-                var gain_node = this.audio_ctx.createGain();
-                gain_node.connect(this.audio_ctx.destination);
-                source.connect(gain_node);
-                source.buffer = this.audio_buffer_1;
-                source.addEventListener('ended', (event) => {
-                    //console.log("source_1 ended")
-                    this.main_buffer_using = !this.main_buffer_using;
-                    this._playSound();
-                });
-             
-                this.source_1 = source;
-            } else {
-                this.audio_buffer_0 = audio_buffer;
-                var source = this.audio_ctx.createBufferSource();
-                var gain_node = this.audio_ctx.createGain();
-                gain_node.connect(this.audio_ctx.destination);
-                source.connect(gain_node);
-                source.buffer = this.audio_buffer_0;
-                source.addEventListener('ended', (event) => {
-                   // console.log("source_0 ended")
-                    this.main_buffer_using = !this.main_buffer_using;
-                    this._playSound();
-                });
-                this.source_0 = source;
-            }
-
-            Module._free(dataPtr);
-            Module._free(jframePtr);
-          //  console.log("prepare buffer end");
+            future_time = this.last_start_time + this.last_duration - now;
+            this.last_start_time = this.last_duration + this.last_start_time;
+            this.last_duration = audio_buffer.duration * 1000;
+        
+           // console.log("this.last_start_time:" + this.last_start_time + ", this.last_duration:" + this.last_duration + ", future_time:" + future_time);
+            source.start(future_time < 0 ? 0 : future_time/ 1e3);
             return 0;
         };
-        this._playSound = function () {
-            if (this.audio_ctx == '') {
-                return;
-            }
-
-            if (this.audio_ctx.state != 'running') {
-                this.audio_ctx.resume();
-            }
-
-            if (this.audio_buffer_0 == -1)
-            {
-                if (this._prepare_buffer() < 0)
-                {
-                    return;
-                }
-                this.main_buffer_using = !this.main_buffer_using;
-            }
-            if (this._prepare_buffer() < 0) {
-                return;
-            }
-            if (this.main_buffer_using) {
-
-                if (this.source_0)
-                {
-                   // console.log("source_0 start")
-                    this.source_0.start(0);
-                }
-
-               
-            } else {
-              
-                if (this.source_1) {
-                   // console.log("source_1 start")
-                    this.source_1.start(0);
-                }
-            }
-        }
     };
 
     this.set_media = function (url, duration) {
@@ -222,7 +218,7 @@ function _player(c_player) {
     };
     this.play = function () {
         Module._play_or_seek(this.c_player, 0);
-        this.audio_player._playSound();
+        this.audio_player.play();
         return;
     };
     this.seek = function (time) {
@@ -231,7 +227,7 @@ function _player(c_player) {
     this.stop = function () {
         Module._destroy_player(this.c_player);
     };
-   
+
     this.test_poll = function () {
         let AudioContext = window.AudioContext || window.webkitAudioContext;
         var audio_ctx = AudioContext ? new AudioContext() : '';
@@ -245,7 +241,7 @@ function _player(c_player) {
             if (jframePtr == 0) {
                 continue;
             }
-      
+
             let len = Module.HEAP32[jframePtr >> 2];
             let cur_time = Module.HEAP32[(jframePtr >> 2) + 1];
             let av_type = Module.HEAP32[(jframePtr >> 2) + 2];
@@ -259,13 +255,13 @@ function _player(c_player) {
         }
 
         // 样本帧数 172032
-        var bufer_count = size / 4 /2;
+        var bufer_count = size / 4 / 2;
         var audio_buffer = audio_ctx.createBuffer(2, bufer_count, audio_ctx.sampleRate);
         console.log("bufer_count:" + bufer_count);
         var index = 0;
         console.log("ptrs.length:" + ptrs.length);
         for (var j = 0; j < ptrs.length; j++) {
-            var data_byte_count =  ptrs[j].len / 4; // 2048
+            var data_byte_count = ptrs[j].len / 4; // 2048
             var single_channel_frame_count = data_byte_count / 2;
             var dataPtr = ptrs[j].ptr;
 

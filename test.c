@@ -74,7 +74,7 @@ int main()
 	play_or_seek(p, 0);
 	*/
 
-	fileRead("C:\\1.ts","E:\\mygo\\src\\github.com\\sialot\\otter_player\\out\\1.pcm");
+	fileRead("C:\\1.ts","D:\\wasm\\1.pcm");
 
 	/*long long media_file_size = 34359738368000000;
 	printf("%lld\n", media_file_size);
@@ -142,7 +142,7 @@ int fileRead(char *filePath, char *outPath) {
 			FRAME_DATA *pes = poll_pes_pkt(d);
 			printf("POLL PES << av_type: %lld\n", pes->av_type);
 			decode_frame(m, pes);
-
+			
 			while (!is_priority_queue_empty(m->js_frame_queue)) {
 
 				FRAME_DATA *f = priority_queue_poll(m->js_frame_queue);
@@ -151,6 +151,8 @@ int fileRead(char *filePath, char *outPath) {
 				free(f->data);
 				free(f);
 			}
+
+			frame_data_destory(pes);
 		}
 
 	} while (rs != 0);

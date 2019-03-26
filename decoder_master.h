@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <libavcodec/avcodec.h>
-#include <libswresample/swresample.h>
 #include "priority_queue.h"
 
 // ½âÂëÆ÷¶¨Òå
@@ -12,11 +11,8 @@ typedef struct DECODER
 	AVCodec *codec;
 	AVCodecContext *context;
 	AVCodecParserContext *parser;
-	SwrContext * swr_ctx;
 	AVPacket *pkt;
 	AVFrame *decoded_frame;
-	uint8_t **src_data;
-	uint8_t **dst_data;
 } DECODER;
 
 #include "aac_decoder.h"

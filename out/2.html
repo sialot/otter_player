@@ -1,0 +1,122 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>webassembly demo</title>
+
+<script type="text/javascript">
+
+// 1024 * 2
+var byteArrayList = [];
+var byte_idx = 0;
+var audio_ctx = AudioContext ? new AudioContext() : '';
+var animationId;
+var wallclockStartTime =0;
+var audio_buffer_list = [];
+function play(){
+
+	animationId = requestAnimationFrame(play);
+	if(getEnqueuedTime() < 0.001){
+
+		play_source();	
+	}
+	
+
+}
+var audio_start_time =0;
+function play_source(){
+	if(byte_idx>=audio_buffer_list.length){
+		return;
+	}
+
+	var audio_buffer = audio_buffer_list[byte_idx];			
+	byte_idx++; 
+
+
+	var source = audio_ctx.createBufferSource();
+	source.buffer = audio_buffer;
+	
+	var duration = audio_buffer.duration;
+	
+	if(wallclockStartTime == 0){
+		wallclockStartTime = performance.now()/ 1e3;
+			wallclockStartTime = wallclockStartTime + 2*duration;
+	}else{
+		wallclockStartTime = wallclockStartTime + duration;
+	}
+
+	
+	source.connect(audio_ctx.destination);
+		//	console.log("start:" + duration);
+	source.start(duration);
+}
+
+function getEnqueuedTime() {
+	return Math.max(wallclockStartTime - performance.now() / 1e3, 0)
+}
+
+/*
+key: "_updateIframe",
+value: function() {
+	
+	  this.audioDevice.enqueuedTime < .25 && this.audioDecoder.decode(), this.getVideoCurrentTime() < this.getAudioCurrentTime() && this.canPlayNextIframe && (this.canPlayNextIframe = !1, this.status.playing = !0, this.videoDecoder.decode()))
+}*/
+
+function getFile(url) {
+    var request = new XMLHttpRequest();
+    request.open("GET", url, true);
+    request.responseType = "arraybuffer";
+    request.url = url + "?" + Math.random();
+    request.onreadystatechange = function () {
+        if (request.readyState == 4) {
+            if (request.status == 200) {
+
+                var arrayBuffer = request.response;
+                if (arrayBuffer) {
+				
+                    var byteArray = new Float32Array(arrayBuffer);			
+					
+					for(var i=0; i< byteArray.length; i = i+102400 ){
+					
+						var data = new Float32Array(102400);
+						for(var j=0; j<102400; j++){
+							data[j] = byteArray[i + j];						
+						}
+						
+												
+						// 样本帧数
+						var bufer_count = data.length/2;
+						var audio_buffer = audio_ctx.createBuffer(2, bufer_count, audio_ctx.sampleRate);						
+
+						for (var j = 0; j < bufer_count; j++) {					
+
+							// 声道 2
+							for (var channel = 0; channel < 2; channel++) {
+								var nowBuffering = audio_buffer.getChannelData(channel);
+								nowBuffering[j] = data[j*2+channel];
+							}
+						}								
+											
+						
+						audio_buffer_list.push(audio_buffer);				
+					}										
+					
+					
+					play();
+                } 
+            }
+            else {
+                console.log("C CALL JS, JS_XHRGetFile failed!");                
+            }
+        }
+    };
+    request.send();
+}
+
+</script>
+
+</head>
+<body style="" >
+
+<input type="button" value="ftest" onclick="getFile('http://192.168.18.201/out/1.pcm')"/>
+</body>
+</html>

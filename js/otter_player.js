@@ -90,7 +90,7 @@ function _player(c_player) {
             return;
         }
         var now = performance.now();
-        if (this.last_start_time != 0 && (this.last_start_time + this.last_duration - now) < -1000) {
+        if (this.last_start_time != 0 && (this.last_start_time + this.last_duration - now) < -5000) {
             this.finish = 1;
         }
         if (this.last_start_time != 0) {
@@ -104,7 +104,7 @@ function _player(c_player) {
    
         if (this.retry) {
             now = performance.now();
-            if ((now - this.last_try_time) > 1000) {
+            if ((now - this.last_try_time) > 200) {
                 this.retry = !1;
                 this.last_try_time = 0;
                 this._prepare_source();
@@ -124,35 +124,48 @@ function _player(c_player) {
 
         // console.log("prepare in!");
         var jframe_arr = new Array(this.MERGE_COUNT);
-        var jframe_count = 0;
+        var jframe_count = 0; // 多少个js音频帧
         var data_byte_count = 0;
         var total_frame_count = 0; // 单声道帧数
         var audio_buffer;
         var channels;
-        for (var i = 0; i < this.MERGE_COUNT; i++) {
+        for (; jframe_count < this.MERGE_COUNT; ) {
             var jframePtr = Module._js_poll_frame(this.c_player);
 
             if (jframePtr == 0) {
-                continue;
-            }
-            this.count++;
-            let len = Module.HEAPU32[jframePtr >> 2];
-            let cur_time = Module.HEAPU32[(jframePtr >> 2) + 1];
-            let av_type = Module.HEAPU32[(jframePtr >> 2) + 2];
-            channels = Module.HEAP32[(jframePtr >> 2) + 3];
-
-            if (av_type != 0) {
-                console.log("VIDEO");
-                Module._free(dataPtr);
-                Module._free(jframePtr);
-                continue;
+                break;
             }
 
-            // 样本帧数
-            total_frame_count += len / 4 / channels; // 单声道帧数
+            var frame_item = new Object();
 
-            jframe_arr[i] = jframePtr;
-            jframe_count++;
+            // 数据长度
+            frame_item.len = Module.HEAPU32[jframePtr >> 2];
+
+            // 当前时间
+            frame_item.cur_time = Module.HEAPU32[(jframePtr >> 2) + 1];
+
+            // 帧类型
+            frame_item.av_type = Module.HEAPU32[(jframePtr >> 2) + 2];
+            
+            // 音频频道数
+            frame_item.channels = Module.HEAP32[(jframePtr >> 2) + 3];
+
+            // 数据指针
+            frame_item.dataPtr = Module.HEAP32[(jframePtr >> 2) + 4];
+
+            // 视频
+            if (frame_item.av_type == 1) {
+                Module._free(frame_item.dataPtr);
+            } else {
+                console.log("frame_item:" + JSON.stringify(frame_item));
+
+                // 样本帧数
+                channels = frame_item.channels;
+                total_frame_count += frame_item.len / 4 / frame_item.channels; // 单声道帧数
+                jframe_arr[jframe_count] = frame_item;
+                jframe_count++;               
+            }
+            Module._free(jframePtr);
         }
 
         if (jframe_count == 0) {         
@@ -165,10 +178,8 @@ function _player(c_player) {
 
         let idx = 0;
         for (var i = 0; i < jframe_count; i++) {
-            let jframePtr = jframe_arr[i];
-            let len = Module.HEAPU32[jframePtr >> 2];
-            let dataPtr = Module.HEAP32[(jframePtr >> 2) + 4];
-            let frame_count = len / 4 / channels;
+            let frame_item = jframe_arr[i];
+            let frame_count = frame_item.len / 4 / frame_item.channels;
 
             // 遍历帧 1-1024
             for (k = 0; k < frame_count; k++) {
@@ -176,13 +187,11 @@ function _player(c_player) {
                 // 声道 2
                 for (var channel = 0; channel < 2; channel++) {
                     var nowBuffering = audio_buffer.getChannelData(channel);
-                    nowBuffering[k + idx] = Module.HEAPF32[(dataPtr >> 2) + k * 2 + channel];
+                    nowBuffering[k + idx] = Module.HEAPF32[(frame_item.dataPtr >> 2) + k * 2 + channel];
                 }
             }
             idx += frame_count;
-
-            Module._free(dataPtr);
-            Module._free(jframePtr);
+            Module._free(frame_item.dataPtr);
         }
 
         var source = this.audio_ctx.createBufferSource();
@@ -231,61 +240,6 @@ function _player(c_player) {
     this.stop = function () {
         Module._destroy_player(this.c_player);
     };
-
-    this.test_poll = function () {
-        let AudioContext = window.AudioContext || window.webkitAudioContext;
-        var audio_ctx = AudioContext ? new AudioContext() : '';
-
-        console.log(audio_ctx.sampleRate);
-        var size = 0;
-        var ptrs = []
-        for (var i = 0; i < 10000; i++) {
-
-            var jframePtr = Module._js_poll_frame(this.c_player);
-            if (jframePtr == 0) {
-                continue;
-            }
-
-            let len = Module.HEAP32[jframePtr >> 2];
-            let cur_time = Module.HEAP32[(jframePtr >> 2) + 1];
-            let av_type = Module.HEAP32[(jframePtr >> 2) + 2];
-            let channels = Module.HEAP32[(jframePtr >> 2) + 3];
-            let dataPtr = Module.HEAP32[(jframePtr >> 2) + 4];
-            if (av_type != 0) {
-                continue;
-            }
-            ptrs.push({ ptr: dataPtr, len: len });
-            size = size + len;
-        }
-
-        // 样本帧数 172032
-        var bufer_count = size / 4 / 2;
-        var audio_buffer = audio_ctx.createBuffer(2, bufer_count, audio_ctx.sampleRate);
-        console.log("bufer_count:" + bufer_count);
-        var index = 0;
-        console.log("ptrs.length:" + ptrs.length);
-        for (var j = 0; j < ptrs.length; j++) {
-            var data_byte_count = ptrs[j].len / 4; // 2048
-            var single_channel_frame_count = data_byte_count / 2;
-            var dataPtr = ptrs[j].ptr;
-
-            // 遍历帧 1-1024
-            for (k = 0; k < single_channel_frame_count; k++) {
-
-                // 声道 2
-                for (var channel = 0; channel < 2; channel++) {
-                    var nowBuffering = audio_buffer.getChannelData(channel);
-                    nowBuffering[index + k] = Module.HEAPF32[(dataPtr >> 2) + k * 2 + channel];
-                }
-            }
-            index = index + single_channel_frame_count;
-        }
-
-        var source = audio_ctx.createBufferSource();
-        source.connect(audio_ctx.destination);
-        source.buffer = audio_buffer;
-        source.start(0);
-    }
 }
 
 // otter_player

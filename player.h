@@ -55,7 +55,7 @@ typedef struct JS_FRAME
 {
 	unsigned int len :32; // 数据长度
 	unsigned int cur_time :32; // 当前时间
-	unsigned int av_type :32; // 类型
+	FRAME_AV_TYPE av_type :32; // 类型
 	int channels :32;
 	unsigned char * data; // 数据
 } JS_FRAME;

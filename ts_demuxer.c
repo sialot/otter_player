@@ -951,9 +951,6 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 		opt_field_idx += 10;
 	}
 
-	tp->dtime = tp->DTS / 90;
-	tp->ptime = tp->PTS / 90;
-
 	// 基本流时钟参考
 	// 00111011 11111111 11111011 11111111 11111011 11111110
 	// 111 11 11111111 11111 11 11111111 11111
@@ -1041,9 +1038,9 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 
 	memcpy(pEsData, pPesByteList->pBytes + dataBegin, es_data_len);
 
-	FRAME_DATA *fdata = frame_data_create(tp->av_type, tp->stream_type, tp->dtime, tp->ptime, pEsData, es_data_len);
+	FRAME_DATA *fdata = frame_data_create(tp->av_type, tp->stream_type, tp->DTS, tp->PTS, pEsData, es_data_len);
 
-	int add_res = priority_queue_push(d->pkt_queue, fdata, tp->dtime);
+	int add_res = priority_queue_push(d->pkt_queue, fdata, fdata->dtime);
 	if (add_res == -1)
 	{
 		printf("push pes failed!\n");

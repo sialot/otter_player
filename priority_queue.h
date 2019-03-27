@@ -24,6 +24,8 @@ typedef struct FRAME_DATA
 	unsigned int time_stamp :32; // 排序用时间戳
 	unsigned int dtime :32;
 	unsigned int ptime :32;
+	unsigned long long dts : 33;
+	unsigned long long pts : 33;
 	unsigned stream_type; // 流类型
 	int channels;
 	FRAME_AV_TYPE av_type; // VIDEO， AUDIO
@@ -43,7 +45,7 @@ typedef struct PRIORITY_QUEUE
 	pthread_cond_t msg_cond;
 } PRIORITY_QUEUE;
 
-FRAME_DATA * frame_data_create(FRAME_AV_TYPE av_type, unsigned stream_type, unsigned int dtime, unsigned int ptime, unsigned char * data, int len);
+FRAME_DATA * frame_data_create(FRAME_AV_TYPE av_type, unsigned stream_type, unsigned long long dts, unsigned long long pts, unsigned char * data, int len);
 void frame_data_destory(FRAME_DATA *f);
 PRIORITY_QUEUE * priority_queue_create(int size, int preSize);
 int priority_queue_push(PRIORITY_QUEUE *q, FRAME_DATA *item, unsigned long long time_stamp);

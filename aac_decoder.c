@@ -78,7 +78,7 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 	// 解析数据获得一个Packet， 从输入的数据流中分离出一帧一帧的压缩编码数据
 	int ret = av_parser_parse2(d->parser, d->context, &d->pkt->data, &d->pkt->size,
 		data, data_size,
-		pPesPkt->dtime, pPesPkt->ptime, 0);
+		pPesPkt->dts, pPesPkt->pts, 0);
 
 	if (ret < 0) {
 		printf("Error while parsing\n");
@@ -157,4 +157,5 @@ void aac_decode_destory(DECODER * d)
 	{
 		av_packet_free(&d->pkt);
 	}
+	free(d);
 }

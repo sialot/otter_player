@@ -227,7 +227,7 @@ int _create_decoder_master(OTTER_PLAYER * p)
 		return -1;
 	}
 
-	DECODER_MASTER *decoder_master = decoder_master_create();
+	DECODER_MASTER *decoder_master = decoder_master_create(p->display_width, p->display_height);
 	if (decoder_master == NULL)
 	{
 		printf("can't create decoder_master!\n");
@@ -300,7 +300,6 @@ void * _audio_decode_start(void * args)
 	while (p->status == WORKING)
 	{
 		FRAME_DATA *esFrame = poll_pes_pkt_by_type(p->demuxer, AUDIO);
-		//printf(" AUDIO>>>> %d \n", esFrame->av_type);
 
 		if (!init_start_timestamp)
 		{
@@ -334,8 +333,6 @@ void * _video_decode_start(void * args)
 	while (p->status == WORKING)
 	{
 		FRAME_DATA *esFrame = poll_pes_pkt_by_type(p->demuxer, VIDEO);
-
-		//printf(" VIDEO>>>> %d \n", esFrame->av_type);
 
 		decode_frame(p->decoder_master, esFrame);
 		frame_data_destory(esFrame);

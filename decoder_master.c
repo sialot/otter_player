@@ -1,13 +1,13 @@
 #include "decoder_master.h"
 
 // 最大缓存帧数，音频+视频
-const int MAX_BUFFER_FRAME_COUNT = 500;
+const int MAX_BUFFER_FRAME_COUNT = 100;
 
 // 最小预加载帧数
-const int MAX_PREBUFFER_FRAME_COUNT = 50;
+const int MAX_PREBUFFER_FRAME_COUNT = 20;
 
 // 创建对象
-DECODER_MASTER * decoder_master_create()
+DECODER_MASTER * decoder_master_create(int display_width, int display_height)
 {
 	DECODER_MASTER *d = (DECODER_MASTER *)malloc(sizeof(DECODER_MASTER));
 	if (d == NULL)
@@ -25,6 +25,8 @@ DECODER_MASTER * decoder_master_create()
 	d->js_frame_queue = js_frame_queue;
 	d->aac_decoder = NULL;
 	d->h264_decoder = NULL;
+	d->display_height = display_height;
+	d->display_width = display_width;
 	return d;
 }
 
@@ -67,6 +69,14 @@ void decoder_master_destroy(DECODER_MASTER * d)
 	{
 		priority_queue_destroy(d->js_frame_queue);
 	}
+	if (d->aac_decoder != NULL)
+	{
+		aac_decode_destory(d->aac_decoder);
+	}
+	if (d->h264_decoder != NULL)
+	{
+		h264_decode_destory(d->h264_decoder);
+	}
 	free(d);
 }
 
@@ -78,7 +88,7 @@ DECODER * _get_decoder(DECODER_MASTER * d, unsigned stream_type)
 	case 0x1b: 
 		if (d->h264_decoder == NULL)
 		{
-			d->h264_decoder = h264_decoder_create();
+			d->h264_decoder = h264_decoder_create(d->display_width, d->display_height);
 		}
 		return d->h264_decoder;
 	case 0x0f:

@@ -1,6 +1,9 @@
 #pragma once
 #include <stdio.h>
 #include <stdlib.h>
+#include <libavutil/imgutils.h>
+#include <libavutil/parseutils.h>
+#include <libswscale/swscale.h>
 #include <libavcodec/avcodec.h>
 #include "priority_queue.h"
 
@@ -8,11 +11,14 @@
 typedef struct DECODER
 {
 	int(*decode_frame)(void *, FRAME_DATA *, PRIORITY_QUEUE *);
+	int display_width; // 显示宽
+	int display_height; // 显示高
 	AVCodec *codec;
 	AVCodecContext *context;
 	AVCodecParserContext *parser;
 	AVPacket *pkt;
 	AVFrame *decoded_frame;
+	struct SwsContext *swx_ctx;
 } DECODER;
 
 #include "aac_decoder.h"
@@ -24,10 +30,12 @@ typedef struct DECODER_MASTER
 	PRIORITY_QUEUE *js_frame_queue;
 	DECODER *aac_decoder;
 	DECODER *h264_decoder;
+	int display_width; // 显示宽
+	int display_height; // 显示高
 } DECODER_MASTER;
 
 // 创建对象
-DECODER_MASTER * decoder_master_create();
+DECODER_MASTER * decoder_master_create(int display_width, int display_height);
 
 // 解码
 int decode_frame(DECODER_MASTER *d, FRAME_DATA * f);

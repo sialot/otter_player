@@ -12,6 +12,7 @@
 
 int fileRead(char *filePath, char *outPath);
 long long my_atoll(char *instr);
+void MySaveBmp(const char *filename, unsigned char *rgbbuf, int width, int height);
 #ifdef _DEBUG  
 #define new new(_NORMAL_BLOCK, __FILE__, __LINE__)  
 #endif  
@@ -22,7 +23,33 @@ void EnableMemLeakCheck()
 	tmpFlag |= _CRTDBG_LEAK_CHECK_DF;
 	_CrtSetDbgFlag(tmpFlag);
 }
-
+typedef struct         BITMAPFILEHEADER              /**** BMP file header structure ****/
+{
+	unsigned int   bfSize;           /* Size of file */
+	unsigned short bfReserved1;      /* Reserved */
+	unsigned short bfReserved2;      /* ... */
+	unsigned int   bfOffBits;        /* Offset to bitmap data */
+} MyBITMAPFILEHEADER;
+typedef struct      MyBITMAPINFOHEADER                 /**** BMP file info structure ****/
+{
+	unsigned int   biSize;           /* Size of info header */
+	int            biWidth;          /* Width of image */
+	int            biHeight;         /* Height of image */
+	unsigned short biPlanes;         /* Number of color planes */
+	unsigned short biBitCount;       /* Number of bits per pixel */
+	unsigned int   biCompression;    /* Type of compression to use */
+	unsigned int   biSizeImage;      /* Size of image data */
+	int            biXPelsPerMeter;  /* X pixels per meter */
+	int            biYPelsPerMeter;  /* Y pixels per meter */
+	unsigned int   biClrUsed;        /* Number of colors used */
+	unsigned int   biClrImportant;   /* Number of important colors */
+} MyBITMAPINFOHEADER;
+typedef struct tagRGBQUAD {
+	unsigned char rgbBlue;//蓝色的亮度（值范围为0-255)  
+	unsigned char rgbGreen;//绿色的亮度（值范围为0-255)  
+	unsigned char rgbRed;//红色的亮度（值范围为0-255)  
+	unsigned char rgbReserved;//保留，必须为0  
+}RGBQUAD;
 int main()
 {
 	EnableMemLeakCheck();
@@ -74,7 +101,7 @@ int main()
 	play_or_seek(p, 0);
 	*/
 
-	fileRead("C:\\1.ts","D:\\wasm\\1.pcm");
+	fileRead("C:\\1.ts","D:\\1111.aac");
 
 	/*long long media_file_size = 34359738368000000;
 	printf("%lld\n", media_file_size);
@@ -128,34 +155,66 @@ int fileRead(char *filePath, char *outPath) {
 
 	size_t rs = 0;
 	TS_DEMUXER *d = ts_demuxer_create(512);
-	DECODER_MASTER *m = decoder_master_create();
+	DECODER_MASTER *m = decoder_master_create(480, 320);
 	unsigned char *pkt = malloc(sizeof(unsigned char) * 188);
+
+	int ts_num = 0;
+	int x = 0;
 	do {
 		
 		rs = fread(pkt, 188, 1, tsFile);
 		if (rs > 0)
 		{
 			demux_ts_pkt(d, pkt);
-		}
-		while (!is_pes_queue_empty(d))
-		{
-			FRAME_DATA *pes = poll_pes_pkt(d);
-			printf("POLL PES << av_type: %lld\n", pes->av_type);
-			decode_frame(m, pes);
-			
-			while (!is_priority_queue_empty(m->js_frame_queue)) {
 
-				FRAME_DATA *f = priority_queue_poll(m->js_frame_queue);
-				printf("<<<<< PCM:%lld \n", f->ptime);
-				fwrite(f->data, 1, f->len, outfile);
-				free(f->data);
-				free(f);
+			while (!is_pes_queue_empty(d))
+			{
+				FRAME_DATA *pes = poll_pes_pkt(d);
+
+				// 视频
+				if (pes->av_type == 0)
+				{
+					//printf("POLL PES av_type0 << dts: %lld\n", pes->dts);
+					//fwrite(pes->data, 1, pes->len, outfile);
+					decode_frame(m, pes);
+
+			
+					while (!is_priority_queue_empty(m->js_frame_queue)) {
+
+						FRAME_DATA *f = priority_queue_poll(m->js_frame_queue);
+
+						if (f->av_type == 0)
+						{
+							printf("<<<<< PCM:%lld \n", f->ptime);
+							fwrite(f->data, 1, f->len, outfile);
+						}
+						else
+						{
+							char outPath1[1024];
+
+							sprintf(outPath1, "D:\\out_pic_%d.bmp", x);
+
+							FILE *outfile1;
+							printf("%s\n", outPath1);
+							MySaveBmp(outPath1, f->data, 480, 320);
+
+							//fwrite(f->data, 1, f->len, outfile1);
+							printf("<<<<< RGB:%d \n", x);
+
+						}
+						x++;
+						free(f->data);
+						free(f);
+					}
+				}
+
+				frame_data_destory(pes);
 			}
 
-			frame_data_destory(pes);
 		}
 
 	} while (rs != 0);
+
 	decoder_master_destroy(m);
 	ts_demuxer_destroy(d);
 	free(pkt);
@@ -166,4 +225,43 @@ int fileRead(char *filePath, char *outPath) {
 	}
 
 	return 0;
+}
+
+void MySaveBmp(const char *filename, unsigned char *rgbbuf, int width, int height)
+{
+	MyBITMAPFILEHEADER bfh;
+	MyBITMAPINFOHEADER bih;
+	/* Magic number for file. It does not fit in the header structure due to alignment requirements, so put it outside */
+	unsigned short bfType = 0x4d42;
+	bfh.bfReserved1 = 0;
+	bfh.bfReserved2 = 0;
+	bfh.bfSize = 2 + sizeof(MyBITMAPFILEHEADER) + sizeof(MyBITMAPFILEHEADER) + width * height * 3;
+	bfh.bfOffBits = 0x36;
+
+	bih.biSize = sizeof(MyBITMAPINFOHEADER);
+	bih.biWidth = width;
+	bih.biHeight = height;
+	bih.biPlanes = 1;
+	bih.biBitCount = 24;
+	bih.biCompression = 0;
+	bih.biSizeImage = 0;
+	bih.biXPelsPerMeter = 5000;
+	bih.biYPelsPerMeter = 5000;
+	bih.biClrUsed = 0;
+	bih.biClrImportant = 0;
+
+	FILE *file = fopen(filename, "wb");
+	if (!file)
+	{
+		printf("Could not write file\n");
+		return;
+	}
+
+	/*Write headers*/
+	fwrite(&bfType, sizeof(bfType), 1, file);
+	fwrite(&bfh, sizeof(bfh), 1, file);
+	fwrite(&bih, sizeof(bih), 1, file);
+
+	fwrite(rgbbuf, width*height * 3, 1, file);
+	fclose(file);
 }

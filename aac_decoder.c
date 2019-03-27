@@ -13,6 +13,9 @@ DECODER * aac_decoder_create()
 	aac_decoder->context = NULL;
 	aac_decoder->parser = NULL;
 	aac_decoder->decoded_frame = NULL;
+	aac_decoder->swx_ctx = NULL;
+	aac_decoder->display_height = 0;
+	aac_decoder->display_width = 0;
 
 	/* find the AAC audio decoder */
 	aac_decoder->codec = avcodec_find_decoder(AV_CODEC_ID_AAC);
@@ -74,6 +77,7 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 	// 输入数据，输入长度
 	uint8_t *data = (uint8_t *)pPesPkt->data;
 	size_t data_size = (size_t)pPesPkt->len;
+	size_t sample_data_size = 0;
 
 	while (data_size > 0) {
 
@@ -107,26 +111,26 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 					printf("Error during decoding\n");
 					return -1;
 				}
-				data_size = av_get_bytes_per_sample(d->context->sample_fmt);
-				if (data_size < 0) {
+				sample_data_size = av_get_bytes_per_sample(d->context->sample_fmt);
+				if (sample_data_size < 0) {
 					/* This should not occur, checking just for paranoia */
 					printf("Failed to calculate data size\n");
 					return -1;
 				}
 
 				// 准备入参
-				int out_len = d->decoded_frame->nb_samples * d->context->channels * data_size;
+				int out_len = d->decoded_frame->nb_samples * d->context->channels * sample_data_size;
 				unsigned char * out_data = malloc(sizeof(unsigned char) * out_len);
 
 				for (int i = 0; i < d->decoded_frame->nb_samples; i++)
 				{
 					for (int ch = 0; ch < d->context->channels; ch++)
 					{
-						memcpy(out_data + (data_size * (i * 2 + ch)), d->decoded_frame->data[ch] + data_size * i, data_size);
+						memcpy(out_data + (sample_data_size * (i * 2 + ch)), d->decoded_frame->data[ch] + sample_data_size * i, sample_data_size);
 					}
 				}
 
-				FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x01, pPesPkt->dtime, pPesPkt->ptime, out_data, out_len);
+				FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x01, pPesPkt->dts, pPesPkt->pts, out_data, out_len);
 				out_frame->channels = d->context->channels;
 				priority_queue_push(queue, out_frame, out_frame->ptime);
 

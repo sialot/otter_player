@@ -86,6 +86,8 @@ int h264_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queu
 
 	while (data_size > 0)
 	{
+		d->pkt->pts = pPesPkt->pts;
+		d->pkt->dts = pPesPkt->dts;
 
 		// 解析数据获得一个Packet， 从输入的数据流中分离出一帧一帧的压缩编码数据
 		int ret = av_parser_parse2(d->parser, d->context, &d->pkt->data, &d->pkt->size,
@@ -140,9 +142,9 @@ int h264_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queu
 
 				unsigned char * out_data = malloc(sizeof(unsigned char) * ret);
 				memcpy(out_data, dst_data[0], ret);
-				av_freep(&dst_data[0]);
 				FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x02, (unsigned long long)d->decoded_frame->pkt_dts, (unsigned long long)d->decoded_frame->pts, out_data, ret);
 				priority_queue_push(queue, out_frame, out_frame->ptime);
+				av_freep(&dst_data);
 			}
 		}
 	}

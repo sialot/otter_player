@@ -18,10 +18,10 @@
 #include "ts_loader.h"
 
 // 每次http请求加载的ts包数 约 100kb
-const int PKT_NUM_PER_TIME = 250;
+const int PKT_NUM_PER_TIME = 2000;
 
 // 包缓存数量 约 1mb
-const int PKT_BUFFER_COUNT = 5000;
+const int PKT_BUFFER_COUNT = 25000;
 
 FILE *tsFile = NULL;
 

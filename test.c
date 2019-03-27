@@ -171,9 +171,6 @@ int fileRead(char *filePath, char *outPath) {
 			{
 				FRAME_DATA *pes = poll_pes_pkt(d);
 
-				// 视频
-				if (pes->av_type == 0)
-				{
 					//printf("POLL PES av_type0 << dts: %lld\n", pes->dts);
 					//fwrite(pes->data, 1, pes->len, outfile);
 					decode_frame(m, pes);
@@ -196,7 +193,7 @@ int fileRead(char *filePath, char *outPath) {
 
 							FILE *outfile1;
 							printf("%s\n", outPath1);
-							MySaveBmp(outPath1, f->data, 480, 320);
+						//	MySaveBmp(outPath1, f->data, 480, 320);
 
 							//fwrite(f->data, 1, f->len, outfile1);
 							printf("<<<<< RGB:%d \n", x);
@@ -206,7 +203,6 @@ int fileRead(char *filePath, char *outPath) {
 						free(f->data);
 						free(f);
 					}
-				}
 
 				frame_data_destory(pes);
 			}

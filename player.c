@@ -144,9 +144,9 @@ EM_PORT_API(JS_FRAME *) js_poll_frame(OTTER_PLAYER *p)
 	if (f->av_type == AUDIO)
 	{
 		jframe->channels = f->channels;
+		p->current_play_time = f->ptime;
 	}
 	jframe->data = f->data;
-	p->current_play_time = f->ptime;
 	free(f);
 	return jframe;
 }
@@ -330,13 +330,7 @@ void * _video_decode_start(void * args)
 	while (p->status == WORKING)
 	{
 		FRAME_DATA *esFrame = poll_pes_pkt_by_type(p->demuxer, VIDEO);
-
-		// ×·¸ÏÒôÆµ
-		if (esFrame->ptime >= p->current_play_time)
-		{
-			decode_frame(p->decoder_master, esFrame);
-		}
-		
+		decode_frame(p->decoder_master, esFrame);
 		frame_data_destory(esFrame);
 	}
 	printf("thread exit [%s]!\n", __FUNCTION__);

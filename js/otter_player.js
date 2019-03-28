@@ -67,7 +67,7 @@ function _player(c_player) {
     this.canvasElem;
     this.audio_player;
     this.c_player = c_player;
-    this.MERGE_COUNT = 48;
+    this.MERGE_COUNT = 1;
     this.audio_ctx;
     this.retry = !1;
     this.last_duration = 0; // 上一帧时长
@@ -114,8 +114,6 @@ function _player(c_player) {
             this.finish = 1;
         }
         if (this.last_start_time != 0) {
-
-            now = performance.now();
             if ((now - this.last_start_time) >= this.played_audio_frame_num * this.frame_duration) {
                 this.played_audio_frame_num++;
                 let imageData = this.frame_map[this.played_audio_frame_num];
@@ -127,14 +125,12 @@ function _player(c_player) {
         }
 
         if (this.retry) {
-            now = performance.now();
             if ((now - this.last_try_time) > 200) {
                 this.retry = !1;
                 this.last_try_time = 0;
                 this._prepare_source();
             }
         } else {
-            now = performance.now();
 
             // 上一个起播 100ms之后，准备下一个
             if ((this.last_start_time + this.last_duration - now) <= this.last_duration / 2) {
@@ -247,8 +243,8 @@ function _player(c_player) {
         future_time = this.last_start_time + this.last_duration - now;
         this.last_start_time = this.last_duration + this.last_start_time;
         this.last_duration = audio_buffer.duration * 1000;
-        this.frame_duration = audio_buffer.duration / jframe_count;
-        source.start(future_time < 0 ? 0 : future_time / 1e3);
+        this.frame_duration = audio_buffer.duration / (jframe_count + 1);
+        source.start((future_time - 10) < 0 ? 0 : (future_time - 10) / 1e3);
         return 0;
     };
 

@@ -17,7 +17,7 @@ function JS_XHRGetFileSize(loadPtr, url) {
                 Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'string'], [loadPtr, size]);
             }
             else {
-                console.log("C CALL JS, JS_XHRGetFileSize failed!");
+                console.error("C CALL JS, JS_XHRGetFileSize failed!");
                 Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'number'], [loadPtr, 0]);
             }
         }
@@ -53,7 +53,7 @@ function JS_XHRGetFile(loadPtr, url, start, end) {
                 }
             }
             else {
-                console.log("C CALL JS, JS_XHRGetFile failed!");
+                console.error("C CALL JS, JS_XHRGetFile failed!");
                 Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, 0, len]);
             }
         }
@@ -64,6 +64,7 @@ function JS_XHRGetFile(loadPtr, url, start, end) {
 // JS player类定义
 function _player(c_player) {
     this.c_player = c_player;
+    this.canvasElem;
     this.audio_player;
     this.c_player = c_player;
     this.MERGE_COUNT = 48;
@@ -75,12 +76,31 @@ function _player(c_player) {
     this.finish = 0;
     this.frame_duration = 0;
     this.audio_frame_num = 0;
-
-    this.init = function () {
+    this.played_audio_frame_num = 0;
+    this.frame_map = {};
+    this.canvas_ctx;
+    this.witdh = 0;
+    this.height = 0;
+    this.init = function (width, height, canvasElem) {
         this.current_time = 0;
         let AudioContext = window.AudioContext || window.webkitAudioContext;
         this.audio_ctx = AudioContext ? new AudioContext() : '';
+        this.witdh = width;
+        this.height = height;
+
         this.status = 0;
+
+        this.canvasElem = canvasElem;
+        this.canvas_ctx = this.canvasElem.getContext("2d");
+
+        let imgData = this.canvas_ctx.createImageData(this.canvasElem.width, this.canvasElem.height);
+        for (var i = 0; i < imgData.data.length; i = i + 4) {
+            imgData.data[i] = 0;
+            imgData.data[i + 1] = 0;
+            imgData.data[i + 2] = 0;
+            imgData.data[i + 3] = 255;
+        }
+        this.canvas_ctx.putImageData(imgData, 0, 0);
     };
 
     this._render = function () {
@@ -96,12 +116,16 @@ function _player(c_player) {
         if (this.last_start_time != 0) {
 
             now = performance.now();
-            if ((now - this.last_start_time) >= this.audio_frame_num * this.frame_duration) {
-                this.audio_frame_num++;
-                console.log(this.audio_frame_num);
+            if ((now - this.last_start_time) >= this.played_audio_frame_num * this.frame_duration) {
+                this.played_audio_frame_num++;
+                let imageData = this.frame_map[this.played_audio_frame_num];
+                if (imageData) {
+                    this.canvas_ctx.putImageData(imageData, 0, 0);
+                    this.frame_map[this.played_audio_frame_num] = undefined;
+                }
             }
         }
-   
+
         if (this.retry) {
             now = performance.now();
             if ((now - this.last_try_time) > 200) {
@@ -113,7 +137,7 @@ function _player(c_player) {
             now = performance.now();
 
             // 上一个起播 100ms之后，准备下一个
-            if ((this.last_start_time + this.last_duration - now) <= 40) {
+            if ((this.last_start_time + this.last_duration - now) <= this.last_duration / 2) {
                 this._prepare_source();
             }
         }
@@ -129,7 +153,7 @@ function _player(c_player) {
         var total_frame_count = 0; // 单声道帧数
         var audio_buffer;
         var channels;
-        for (; jframe_count < this.MERGE_COUNT; ) {
+        for (; jframe_count < this.MERGE_COUNT;) {
             var jframePtr = Module._js_poll_frame(this.c_player);
 
             if (jframePtr == 0) {
@@ -146,7 +170,7 @@ function _player(c_player) {
 
             // 帧类型
             frame_item.av_type = Module.HEAPU32[(jframePtr >> 2) + 2];
-            
+
             // 音频频道数
             frame_item.channels = Module.HEAP32[(jframePtr >> 2) + 3];
 
@@ -155,20 +179,33 @@ function _player(c_player) {
 
             // 视频
             if (frame_item.av_type == 1) {
+
+                var imgData = this.canvas_ctx.createImageData(480, 320);
+                var i = 0, imgIdx = 0;
+                for (; imgIdx < imgData.data.length;) {
+                    imgData.data[imgIdx] = Module.HEAPU8[frame_item.dataPtr + i];
+                    imgData.data[imgIdx + 1] = Module.HEAPU8[frame_item.dataPtr + i + 1];
+                    imgData.data[imgIdx + 2] = Module.HEAPU8[frame_item.dataPtr + i + 2];
+                    imgData.data[imgIdx + 3] = 255;
+                    imgIdx = imgIdx + 4;
+                    i = i + 3;
+                }
+                this.frame_map[this.audio_frame_num - 1] = imgData;
+
                 Module._free(frame_item.dataPtr);
             } else {
-                console.log("frame_item:" + JSON.stringify(frame_item));
 
                 // 样本帧数
                 channels = frame_item.channels;
                 total_frame_count += frame_item.len / 4 / frame_item.channels; // 单声道帧数
                 jframe_arr[jframe_count] = frame_item;
-                jframe_count++;               
+                jframe_count++;
+                this.audio_frame_num++;
             }
             Module._free(jframePtr);
         }
 
-        if (jframe_count == 0) {         
+        if (jframe_count == 0) {
             this.retry = !0;
             this.last_try_time = performance.now();
             return;
@@ -201,7 +238,7 @@ function _player(c_player) {
         source.buffer = audio_buffer;
 
         var future_time;
-         
+
         // 当前为第一时间片
         var now = performance.now();
         if (this.last_start_time == 0) {
@@ -244,13 +281,13 @@ function _player(c_player) {
 
 // otter_player
 var otter_player = {
-    create_player: function (width, height) {
+    create_player: function (width, height, canvasElem) {
         var c_player = Module._create_player(width, height);
         if (!c_player) {
             return null;
         }
         var player = new _player(c_player);
-        player.init();
+        player.init(width, height, canvasElem);
         return player;
     }
 };

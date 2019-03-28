@@ -136,6 +136,11 @@ EM_PORT_API(JS_FRAME *) js_poll_frame(OTTER_PLAYER *p)
 		return NULL;
 	}
 
+	while (f->av_type == VIDEO && f->ptime < p->current_play_time)
+	{
+		f = priority_queue_poll_without_wait(p->decoder_master->js_frame_queue);
+	}
+
 	JS_FRAME *jframe = malloc(sizeof(JS_FRAME));
 	jframe->len = f->len;
 	jframe->cur_time = f->ptime  - p->media_start_timestamp;

@@ -144,6 +144,7 @@ int h264_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queu
 				memcpy(out_data, dst_data[0], ret);
 				FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x02, (unsigned long long)d->decoded_frame->pkt_dts, (unsigned long long)d->decoded_frame->pts, out_data, ret);
 				priority_queue_push(queue, out_frame, out_frame->ptime);
+				av_frame_unref(d->decoded_frame);
 				av_freep(&dst_data[0]);
 			}
 		}

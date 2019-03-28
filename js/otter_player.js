@@ -79,7 +79,7 @@ function _player(c_player) {
     this.audio_frame_num = 0;
     this.played_audio_frame_num = 0;
     this.arr_idx = 0;
-    this.frame_arr = new Array(360);
+    this.frame_arr = new Array(50);
     this.canvas_ctx;
     this.witdh = 0;
     this.height = 0;
@@ -115,19 +115,21 @@ function _player(c_player) {
         if (this.last_start_time != 0 && (this.last_start_time + this.last_duration - now) < -5000) {
             this.finish = 1;
         }
-        if (this.start_time != 0) {
-
-            if ((now - this.start_time) % 40 < 5) {
-                for (i = 0; i < this.frame_arr.length; i++) {
-                    if (!this.frame_arr[i]) {
-                        continue;
-                    }
-
-                    if ((now - this.start_time - this.frame_arr[i].time) < 5) {
-                        this.canvas_ctx.putImageData(this.frame_arr[i].data, 0, 0);
-                    }
-                }
-            }           
+        if (this.start_time != 0) {				
+			
+			for (i = 0; i < this.frame_arr.length; i++) {
+				if (!this.frame_arr[i]) {
+					continue;
+				}					
+				
+	
+					var imgData = this.frame_arr[i].data;						
+					this.canvas_ctx.putImageData(imgData, 0, 0);				
+					this.frame_arr[i] = undefined;	
+					break;
+			
+			}
+         
         }
 
         if (this.retry) {
@@ -181,23 +183,24 @@ function _player(c_player) {
 
             // 视频
             if (frame_item.av_type == 1) {
+                
+    
+				var imgData = this.canvas_ctx.createImageData(480, 320);
+				var i = 0, imgIdx = 0;
+				for (; imgIdx < imgData.data.length;) {
+					imgData.data[imgIdx] = Module.HEAPU8[frame_item.dataPtr + i];
+					imgData.data[imgIdx + 1] = Module.HEAPU8[frame_item.dataPtr + i + 1];
+					imgData.data[imgIdx + 2] = Module.HEAPU8[frame_item.dataPtr + i + 2];
+					imgData.data[imgIdx + 3] = 255;
+					imgIdx = imgIdx + 4;
+					i = i + 3;
+				}	
 
-                var imgData = this.canvas_ctx.createImageData(480, 320);
-                var i = 0, imgIdx = 0;
-                for (; imgIdx < imgData.data.length;) {
-                    imgData.data[imgIdx] = Module.HEAPU8[frame_item.dataPtr + i];
-                    imgData.data[imgIdx + 1] = Module.HEAPU8[frame_item.dataPtr + i + 1];
-                    imgData.data[imgIdx + 2] = Module.HEAPU8[frame_item.dataPtr + i + 2];
-                    imgData.data[imgIdx + 3] = 255;
-                    imgIdx = imgIdx + 4;
-                    i = i + 3;
-                }
-
-                var frame_data = { data: imgData, time: frame_item.cur_time };
-                this.frame_arr[this.arr_idx] = frame_data;
-                this.arr_idx = (this.arr_idx == (this.frame_arr.length - 1)) ? 0 : (this.arr_idx + 1);
-
-                Module._free(frame_item.dataPtr);
+				var frame_data = { data: imgData, time: frame_item.cur_time };
+				Module._free(frame_item.dataPtr);				
+                this.frame_arr[this.arr_idx % this.frame_arr.length] = frame_data;
+				this.arr_idx++;
+               
             } else {
 
                 // 样本帧数
@@ -257,7 +260,7 @@ function _player(c_player) {
             this.last_duration = audio_buffer.duration * 1000;
         }
         this.frame_duration = (audio_buffer.duration * 1000) / (jframe_count + 1);
-        source.start((future_time - 10) < 0 ? 0 : (future_time - 8) / 1e3);
+        source.start((future_time - 8) < 0 ? 0 : (future_time - 8) / 1e3);
         return 0;
     };
 

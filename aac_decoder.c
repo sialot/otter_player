@@ -133,8 +133,7 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 				FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x01, pPesPkt->dts, pPesPkt->pts, out_data, out_len);
 				out_frame->channels = d->context->channels;
 				priority_queue_push(queue, out_frame, out_frame->ptime);
-
-				///printf("get pcm data.nb_samples:%d, channels:%d, data_size:%d, total_size:%d \n ", d->decoded_frame->nb_samples, d->context->channels, (int)data_size, js_frame_data_len);
+				av_frame_unref(d->decoded_frame);
 			}
 		}
 	}

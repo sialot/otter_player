@@ -31,7 +31,7 @@ TS_DEMUXER * ts_demuxer_create()
 	}
 	d->global_buffer_map = map;
 
-	PRIORITY_QUEUE *pkt_queue = priority_queue_create(BUFFER_COUNT, 30);
+	PRIORITY_QUEUE *pkt_queue = priority_queue_create(BUFFER_COUNT, 0);
 	if (pkt_queue == NULL)
 	{
 		printf("[%s]ts_pkt_queue init failed!\n", __FUNCTION__);

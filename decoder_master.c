@@ -1,10 +1,10 @@
 #include "decoder_master.h"
 
 // 最大缓存帧数，音频+视频
-const int MAX_BUFFER_FRAME_COUNT = 200;
+const int MAX_BUFFER_FRAME_COUNT = 48;
 
 // 最小预加载帧数
-const int MAX_PREBUFFER_FRAME_COUNT = 75;
+const int MAX_PREBUFFER_FRAME_COUNT = 24;
 
 // 创建对象
 DECODER_MASTER * decoder_master_create(int display_width, int display_height)

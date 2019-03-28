@@ -7,8 +7,9 @@
 var player;
 Module = {};
 Module.onRuntimeInitialized = function () {
-	player = otter_player.create_player(1920, 1080);
-	var url = "http://192.168.18.201/out/1.ts";
+	var canv = document.getElementById("canvas");
+	player = otter_player.create_player(480, 320, canv);
+	var url = "http://192.168.18.201/out/2.ts";
 	player.set_media(url, 6519);
 	//player.play();
 	//player.seek(3000);
@@ -19,6 +20,8 @@ Module.onRuntimeInitialized = function () {
 <script src="http://192.168.18.201/out/player.js?222142"></script>
 </head>
 <body style="" >
+<canvas id="canvas" width="480" height="320" style="border:1px black solid"></canvas>
+<br />
 <input type="button" value="play" onclick="player.play()"/>
 </body>
 </html>

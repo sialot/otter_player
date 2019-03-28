@@ -67,17 +67,19 @@ function _player(c_player) {
     this.canvasElem;
     this.audio_player;
     this.c_player = c_player;
-    this.MERGE_COUNT = 1;
+    this.MERGE_COUNT = 48;
     this.audio_ctx;
     this.retry = !1;
     this.last_duration = 0; // 上一帧时长
     this.last_start_time = 0; // 上一帧开始时间
+    this.start_time = 0;
     this.last_try_time = 0;
     this.finish = 0;
     this.frame_duration = 0;
     this.audio_frame_num = 0;
     this.played_audio_frame_num = 0;
-    this.frame_map = {};
+    this.arr_idx = 0;
+    this.frame_arr = new Array(360);
     this.canvas_ctx;
     this.witdh = 0;
     this.height = 0;
@@ -113,15 +115,19 @@ function _player(c_player) {
         if (this.last_start_time != 0 && (this.last_start_time + this.last_duration - now) < -5000) {
             this.finish = 1;
         }
-        if (this.last_start_time != 0) {
-            if ((now - this.last_start_time) >= this.played_audio_frame_num * this.frame_duration) {
-                this.played_audio_frame_num++;
-                let imageData = this.frame_map[this.played_audio_frame_num];
-                if (imageData) {
-                    this.canvas_ctx.putImageData(imageData, 0, 0);
-                    this.frame_map[this.played_audio_frame_num] = undefined;
+        if (this.start_time != 0) {
+
+            if ((now - this.start_time) % 40 < 5) {
+                for (i = 0; i < this.frame_arr.length; i++) {
+                    if (!this.frame_arr[i]) {
+                        continue;
+                    }
+
+                    if ((now - this.start_time - this.frame_arr[i].time) < 5) {
+                        this.canvas_ctx.putImageData(this.frame_arr[i].data, 0, 0);
+                    }
                 }
-            }
+            }           
         }
 
         if (this.retry) {
@@ -186,7 +192,10 @@ function _player(c_player) {
                     imgIdx = imgIdx + 4;
                     i = i + 3;
                 }
-                this.frame_map[this.audio_frame_num - 1] = imgData;
+
+                var frame_data = { data: imgData, time: frame_item.cur_time };
+                this.frame_arr[this.arr_idx] = frame_data;
+                this.arr_idx = (this.arr_idx == (this.frame_arr.length - 1)) ? 0 : (this.arr_idx + 1);
 
                 Module._free(frame_item.dataPtr);
             } else {
@@ -238,13 +247,17 @@ function _player(c_player) {
         // 当前为第一时间片
         var now = performance.now();
         if (this.last_start_time == 0) {
+            future_time = 0;
             this.last_start_time = now;
+            this.last_duration = audio_buffer.duration * 1000;
+            this.start_time = now;
+        } else {
+            future_time = this.last_start_time + this.last_duration - now;
+            this.last_start_time = this.last_duration + this.last_start_time;
+            this.last_duration = audio_buffer.duration * 1000;
         }
-        future_time = this.last_start_time + this.last_duration - now;
-        this.last_start_time = this.last_duration + this.last_start_time;
-        this.last_duration = audio_buffer.duration * 1000;
-        this.frame_duration = audio_buffer.duration / (jframe_count + 1);
-        source.start((future_time - 10) < 0 ? 0 : (future_time - 10) / 1e3);
+        this.frame_duration = (audio_buffer.duration * 1000) / (jframe_count + 1);
+        source.start((future_time - 10) < 0 ? 0 : (future_time - 8) / 1e3);
         return 0;
     };
 

@@ -306,6 +306,7 @@ EM_PORT_API(void) _xhr_on_load_success(TS_LOADER * l, unsigned char * bytes, int
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	pthread_create(&l->http_thread, &attr, _push_file_data, &args);
+	pthread_attr_destroy(&attr);
 }
 int pkt_num = 0;
 

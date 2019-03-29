@@ -109,6 +109,8 @@ EM_PORT_API(int) play_or_seek(OTTER_PLAYER *p, int time)
 		pthread_create(&p->ts_demux_thread, &attr, _media_demux_start, (void *)&args);
 		pthread_create(&p->audio_decode_thread, &attr, _audio_decode_start, (void *)&args);
 		pthread_create(&p->video_decode_thread, &attr, _video_decode_start, (void *)&args);
+
+		pthread_attr_destroy(&attr);
 	}
 
 	if (p->status == WORKING && p->loader->start_time != time)

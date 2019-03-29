@@ -23,7 +23,7 @@ int hash_map_put(HASH_MAP *map, int key, BYTE_LIST *value)
 				// Ìæ»»Êý¾Ý
 				if (node->value != value)
 				{
-					free(node->value);
+					byte_list_destroy(node->value);
 					node->value = value;
 					return 0;
 				}
@@ -72,6 +72,17 @@ BYTE_LIST * hash_map_get(HASH_MAP * map, int key)
 		} while (node != NULL);
 	}
 	return NULL;
+}
+
+int hash_map_destory_and_remove(HASH_MAP * map, int key)
+{
+	BYTE_LIST *item = hash_map_get(map, key);
+	if (item == NULL)
+	{
+		return 0;
+	}
+	hash_map_put(map, key, NULL);
+	return 0;
 }
 
 static int hash(int key)

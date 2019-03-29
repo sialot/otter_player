@@ -23,6 +23,8 @@ int hash_map_put(HASH_MAP *map, int key, BYTE_LIST *value);
 
 BYTE_LIST * hash_map_get(HASH_MAP *map, int key);
 
+int hash_map_destory_and_remove(HASH_MAP *map, int key);
+
 static int hash(int key);
 
 static int get_table_index(HASH_MAP *map, int key);

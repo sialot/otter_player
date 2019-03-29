@@ -58,21 +58,6 @@ int is_byte_list_finish(BYTE_LIST * bl)
 	return 0;
 }
 
-int byte_list_clean(BYTE_LIST * bl)
-{
-	bl->used_len = 0;
-	bl->finish_len = 0;
-	unsigned char * pByteNew = (unsigned char *)realloc(bl->pBytes, sizeof(unsigned char) * 256);
-	if (pByteNew == NULL)
-	{
-		return -1;
-	}
-
-	bl->pBytes = pByteNew;
-	bl->size = 256;
-	return 0;
-}
-
 int byte_list_destroy(BYTE_LIST *bl)
 {
 	if (bl == NULL)

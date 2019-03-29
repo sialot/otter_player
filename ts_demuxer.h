@@ -127,10 +127,6 @@ typedef struct TS_DEMUXER
 	TS_PMT *global_pmt;                   // 全局映射表
 	HASH_MAP *global_buffer_map;          // 缓存map
 	int cur_program_num;                  // 当前节目号
-	int temp_programs_count;              // 临时节目总数
-	TS_PAT_PROGRAM *temp_programs;        // 临时节目数据
-	int temp_streams_count;               // 临时流总数
-	TS_PMT_STREAM *temp_streams;          // 临时流数据
 	PRIORITY_QUEUE *pkt_queue;
 } TS_DEMUXER;
 

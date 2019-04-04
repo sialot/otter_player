@@ -61,11 +61,37 @@ function JS_XHRGetFile(loadPtr, url, start, end) {
     request.send();
 }
 
+// ts加载器
+function ts_loader() {
+    this.media_file_size;
+    this.current_range;
+    this.duration;
+    this.start_time;
+    this.media_url;
+    this.is_can_seek;
+    this.is_finish; 
+    this.init = function (media_url, duration, start_time) {
+        this.media_file_size = 0;
+        this.current_range = 0;
+        this.duration = duration;
+        this.start_time = start_time;
+        this.media_url = media_url;
+    };
+    this.loadFile = function () {
+
+
+
+    };
+
+
+}
+
 // JS player类定义
 function _player(c_player) {
     this.c_player = c_player;
     this.canvasElem;
     this.audio_player;
+	this.cur_time;
     this.c_player = c_player;
     this.MERGE_COUNT = 48;
     this.audio_ctx;
@@ -79,7 +105,7 @@ function _player(c_player) {
     this.audio_frame_num = 0;
     this.played_audio_frame_num = 0;
     this.arr_idx = 0;
-    this.frame_arr = new Array(50);
+    this.frame_arr = new Array(150);
     this.canvas_ctx;
     this.witdh = 0;
     this.height = 0;
@@ -89,7 +115,7 @@ function _player(c_player) {
         this.audio_ctx = AudioContext ? new AudioContext() : '';
         this.witdh = width;
         this.height = height;
-
+		this.cur_time = 0;
         this.status = 0;
 
         this.canvasElem = canvasElem;
@@ -103,10 +129,13 @@ function _player(c_player) {
             imgData.data[i + 3] = 255;
         }
         this.canvas_ctx.putImageData(imgData, 0, 0);
+		for(var i=0; i< this.frame_arr.length; i++){
+			var f_data = this.canvas_ctx.createImageData(this.canvasElem.width, this.canvasElem.height);
+			this.frame_arr[i] = { data: f_data, time: -1, dataPtr:0};
+		}
     };
-
+	this.last_dis_time =0;
     this._render = function () {
-
         if (this.finish) {
             console.log("audio finish!");
             return;
@@ -116,22 +145,46 @@ function _player(c_player) {
             this.finish = 1;
         }
         if (this.start_time != 0) {				
-			
+		
 			for (i = 0; i < this.frame_arr.length; i++) {
-				if (!this.frame_arr[i]) {
+				if (this.frame_arr[i].time == -1) {
 					continue;
 				}					
+				let f_time = this.frame_arr[i].time;
 				
-	
-					var imgData = this.frame_arr[i].data;						
-					this.canvas_ctx.putImageData(imgData, 0, 0);				
-					this.frame_arr[i] = undefined;	
-					break;
-			
+				if((now - this.last_dis_time) >= 40){
+				
+					if(this.cur_time >= f_time){					
+						Module._free(this.frame_arr[i].dataPtr);
+						this.frame_arr[i].time = -1;
+						continue;
+					}else{
+						var imgData = this.frame_arr[i].data;
+						var dataPtr = this.frame_arr[i].dataPtr;
+						var j = 0, imgIdx = 0;
+						
+						for (; imgIdx < imgData.data.length;) {
+							imgData.data[imgIdx] = Module.HEAPU8[dataPtr + j];
+							imgData.data[imgIdx + 1] = Module.HEAPU8[dataPtr + j + 1];
+							imgData.data[imgIdx + 2] = Module.HEAPU8[dataPtr + j + 2];
+							imgData.data[imgIdx + 3] = 255;
+							imgIdx = imgIdx + 4;
+							j = j + 3;
+						}	
+						console.log(">>:" + f_time);
+						Module._free(dataPtr);
+						this.canvas_ctx.putImageData(imgData, 0, 0);
+						this.cur_time = f_time;
+						this.last_dis_time = now;
+						this.frame_arr[i].time = -1;
+					}
+				
+				}else{
+					continue;
+				}
 			}
-         
         }
-
+        var now = performance.now();
         if (this.retry) {
             if ((now - this.last_try_time) > 200) {
                 this.retry = !1;
@@ -142,11 +195,12 @@ function _player(c_player) {
 
             // 上一个起播 100ms之后，准备下一个
             if ((this.last_start_time + this.last_duration - now) <= this.last_duration / 2) {
+		
                 this._prepare_source();
+	
             }
         }
-
-        var id = requestAnimationFrame(function () { this._render() }.bind(this));
+		var id = requestAnimationFrame(function () { this._render() }.bind(this));
     },
     this._prepare_source = function () {
 
@@ -161,6 +215,7 @@ function _player(c_player) {
             var jframePtr = Module._js_poll_frame(this.c_player);
 
             if (jframePtr == 0) {
+				console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> zero");
                 break;
             }
 
@@ -183,24 +238,9 @@ function _player(c_player) {
 
             // 视频
             if (frame_item.av_type == 1) {
-                
-    
-				var imgData = this.canvas_ctx.createImageData(480, 320);
-				var i = 0, imgIdx = 0;
-				for (; imgIdx < imgData.data.length;) {
-					imgData.data[imgIdx] = Module.HEAPU8[frame_item.dataPtr + i];
-					imgData.data[imgIdx + 1] = Module.HEAPU8[frame_item.dataPtr + i + 1];
-					imgData.data[imgIdx + 2] = Module.HEAPU8[frame_item.dataPtr + i + 2];
-					imgData.data[imgIdx + 3] = 255;
-					imgIdx = imgIdx + 4;
-					i = i + 3;
-				}	
-
-				var frame_data = { data: imgData, time: frame_item.cur_time };
-				Module._free(frame_item.dataPtr);				
-                this.frame_arr[this.arr_idx % this.frame_arr.length] = frame_data;
+				this.frame_arr[this.arr_idx % this.frame_arr.length].dataPtr = frame_item.dataPtr;
+				this.frame_arr[this.arr_idx % this.frame_arr.length].time = frame_item.cur_time;
 				this.arr_idx++;
-               
             } else {
 
                 // 样本帧数
@@ -213,6 +253,12 @@ function _player(c_player) {
             Module._free(jframePtr);
         }
 
+		var str = "";
+		for(var i=0;i<this.frame_arr.length; i++){
+			str+=this.frame_arr[i].time + ",";
+		}
+		console.log(str);
+		
         if (jframe_count == 0) {
             this.retry = !0;
             this.last_try_time = performance.now();
@@ -261,6 +307,8 @@ function _player(c_player) {
         }
         this.frame_duration = (audio_buffer.duration * 1000) / (jframe_count + 1);
         source.start((future_time - 8) < 0 ? 0 : (future_time - 8) / 1e3);
+		
+		 console.log("====");
         return 0;
     };
 

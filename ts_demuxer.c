@@ -1,7 +1,7 @@
 ﻿#include "ts_demuxer.h"
 
 // 每次缓存的最大pes包数 50 * 80000 约 4mb
-const int BUFFER_COUNT = 150;
+const int BUFFER_COUNT = 1000;
 
 // 解封装模块创建
 TS_DEMUXER * ts_demuxer_create()

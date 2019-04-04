@@ -157,7 +157,6 @@ function _player(c_player) {
 					if(this.cur_time >= f_time){					
 						Module._free(this.frame_arr[i].dataPtr);
 						this.frame_arr[i].time = -1;
-						continue;
 					}else{
 						var imgData = this.frame_arr[i].data;
 						var dataPtr = this.frame_arr[i].dataPtr;
@@ -252,12 +251,6 @@ function _player(c_player) {
             }
             Module._free(jframePtr);
         }
-
-		var str = "";
-		for(var i=0;i<this.frame_arr.length; i++){
-			str+=this.frame_arr[i].time + ",";
-		}
-		console.log(str);
 		
         if (jframe_count == 0) {
             this.retry = !0;
@@ -307,8 +300,6 @@ function _player(c_player) {
         }
         this.frame_duration = (audio_buffer.duration * 1000) / (jframe_count + 1);
         source.start((future_time - 8) < 0 ? 0 : (future_time - 8) / 1e3);
-		
-		 console.log("====");
         return 0;
     };
 

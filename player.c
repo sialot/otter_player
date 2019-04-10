@@ -76,7 +76,7 @@ EM_PORT_API(int) set_media(OTTER_PLAYER *p, char * media_url, int duration)
 		destroy_player(p);
 		return -1;
 	}
-
+	ts_loader_range_load(p->loader);
 	printf("player is ready !\n");
 	return 0;
 }
@@ -105,7 +105,6 @@ EM_PORT_API(int) play_or_seek(OTTER_PLAYER *p, int time)
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
 		// 创建线程
-		ts_loader_range_load(p->loader);
 		pthread_create(&p->ts_demux_thread, &attr, _media_demux_start, (void *)&args);
 		pthread_create(&p->audio_decode_thread, &attr, _audio_decode_start, (void *)&args);
 		pthread_create(&p->video_decode_thread, &attr, _video_decode_start, (void *)&args);

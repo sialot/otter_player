@@ -21,7 +21,7 @@
 const int PKT_NUM_PER_TIME = 20000;
 
 // 包缓存数量 约 1mb
-const int PKT_BUFFER_COUNT = 50000;
+const int PKT_BUFFER_COUNT = 40000;
 
 FILE *tsFile = NULL;
 
@@ -337,7 +337,7 @@ void *_push_file_data(void * args)
 	{
 		ts_loader_range_load(l);
 	}
-
+	printf("data pushed \n");
 	free(bytes);
 	return NULL;
 }

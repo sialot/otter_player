@@ -109,6 +109,7 @@ function _player(c_player) {
     this.canvas_ctx;
     this.witdh = 0;
     this.height = 0;
+    this.inited = false;
     this.init = function (width, height, canvasElem) {
         this.current_time = 0;
         let AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -129,10 +130,7 @@ function _player(c_player) {
             imgData.data[i + 3] = 255;
         }
         this.canvas_ctx.putImageData(imgData, 0, 0);
-		for(var i=0; i< this.frame_arr.length; i++){
-			var f_data = this.canvas_ctx.createImageData(this.canvasElem.width, this.canvasElem.height);
-			this.frame_arr[i] = { data: f_data, time: -1, dataPtr:0};
-		}
+		this.inited = true;
     };
 	this.last_dis_time =0;
     this._render = function () {
@@ -146,7 +144,12 @@ function _player(c_player) {
         }
         if (this.start_time != 0) {				
 		
-			for (i = 0; i < this.frame_arr.length; i++) {
+            for (i = 0; i < this.frame_arr.length; i++) {
+
+                if (this.frame_arr[i] == undefined) {
+                    continue;
+                }
+
 				if (this.frame_arr[i].time == -1) {
 					continue;
 				}					
@@ -237,6 +240,12 @@ function _player(c_player) {
 
             // สำฦต
             if (frame_item.av_type == 1) {
+
+                if(this.frame_arr[this.arr_idx % this.frame_arr.length] == undefined){
+                    var f_data = this.canvas_ctx.createImageData(this.canvasElem.width, this.canvasElem.height);
+                    this.frame_arr[this.arr_idx % this.frame_arr.length] = { data: f_data, time: -1, dataPtr: 0 };
+                }
+
 				this.frame_arr[this.arr_idx % this.frame_arr.length].dataPtr = frame_item.dataPtr;
 				this.frame_arr[this.arr_idx % this.frame_arr.length].time = frame_item.cur_time;
 				this.arr_idx++;
@@ -318,6 +327,10 @@ function _player(c_player) {
         return;
     };
     this.play = function () {
+        if (!this.inited) {
+            return;
+        }
+
         Module._play_or_seek(this.c_player, 0);
         this._render();
         return;
@@ -338,7 +351,7 @@ var otter_player = {
             return null;
         }
         var player = new _player(c_player);
-        player.init(width, height, canvasElem);
+        setTimeout(function () { player.init(width, height, canvasElem); }, 5000);        
         return player;
     }
 };

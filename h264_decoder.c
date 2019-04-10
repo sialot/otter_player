@@ -80,74 +80,59 @@ int h264_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queu
 {
 	DECODER *d = (DECODER *)pDecoder;
 
-	// 输入数据，输入长度
-	uint8_t *data = (uint8_t *)pPesPkt->data;
-	size_t data_size = (size_t)pPesPkt->len;
+	//printf("IN>> pts:%d, dts:%d \n", pPesPkt->ptime, pPesPkt->dtime);
 
-	while (data_size > 0)
-	{
-		d->pkt->pts = pPesPkt->pts;
-		d->pkt->dts = pPesPkt->dts;
+	d->pkt->pts = pPesPkt->pts;
+	d->pkt->dts = pPesPkt->dts;
+	d->pkt->data = pPesPkt->data;
+	d->pkt->size = pPesPkt->len;
 
-		// 解析数据获得一个Packet， 从输入的数据流中分离出一帧一帧的压缩编码数据
-		int ret = av_parser_parse2(d->parser, d->context, &d->pkt->data, &d->pkt->size,
-			data, data_size, pPesPkt->pts, pPesPkt->dts, 0);
+	int ret;
+	ret = avcodec_send_packet(d->context, d->pkt);
+	if (ret < 0) {
+		printf("Error submitting the packet to the decoder\n");
+		return -1;
+	}
 
-		if (ret < 0) {
-			printf("Error while parsing\n");
+	while (ret >= 0) {
+		ret = avcodec_receive_frame(d->context, d->decoded_frame);
+		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+		{
+			continue;
+		}
+		else if (ret < 0) {
+			printf("Error during decoding\n");
 			return -1;
 		}
-		data += ret;
-		data_size -= ret;
-
-		if (d->pkt->size)
-		{
-			int ret;
-			ret = avcodec_send_packet(d->context, d->pkt);
-			if (ret < 0) {
-				printf("Error submitting the packet to the decoder\n");
-				return -1;
-			}
-
-			while (ret >= 0) {
-				ret = avcodec_receive_frame(d->context, d->decoded_frame);
-				if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-				{
-					continue;
-				}
-				else if (ret < 0) {
-					printf("Error during decoding\n");
-					return -1;
-				}
 				
-				uint8_t *dst_data[4];
-				int dst_linesize[4], ret;
+		uint8_t *dst_data[4];
+		int dst_linesize[4], ret;
 
-				// 初始化缩放
-				if (d->swx_ctx == NULL)
-				{
-					d->swx_ctx = sws_getContext(d->decoded_frame->width, d->decoded_frame->height, 
-						d->context->pix_fmt, d->display_width, d->display_height, AV_PIX_FMT_RGB24, SWS_FAST_BILINEAR, NULL, NULL, NULL);
-				}
-
-				// 准备缩放空间
-				if ((ret = av_image_alloc(dst_data, dst_linesize, d->display_width, d->display_height, AV_PIX_FMT_RGB24, 1)) < 0) {
-					printf("Could not allocate destination image\n");
-					return -1;
-				}
-
-				// 缩放
-				sws_scale(d->swx_ctx, (const uint8_t *const *)d->decoded_frame->data, d->decoded_frame->linesize, 0,
-					d->decoded_frame->height, dst_data, dst_linesize);
-
-				unsigned char * out_data = malloc(sizeof(unsigned char) * ret);
-				memcpy(out_data, dst_data[0], ret);
-				FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x02, (unsigned long long)d->decoded_frame->pkt_dts, (unsigned long long)d->decoded_frame->pts, out_data, ret);
-				priority_queue_push(queue, out_frame, out_frame->ptime);
-				av_frame_unref(d->decoded_frame);
-				av_freep(&dst_data[0]);
-			}
+		// 初始化缩放
+		if (d->swx_ctx == NULL)
+		{
+			d->swx_ctx = sws_getContext(d->decoded_frame->width, d->decoded_frame->height, 
+				d->context->pix_fmt, d->display_width, d->display_height, AV_PIX_FMT_RGB24, SWS_FAST_BILINEAR, NULL, NULL, NULL);
 		}
+
+		// 准备缩放空间
+		if ((ret = av_image_alloc(dst_data, dst_linesize, d->display_width, d->display_height, AV_PIX_FMT_RGB24, 1)) < 0) {
+			printf("Could not allocate destination image\n");
+			return -1;
+		}
+
+		// 缩放
+		sws_scale(d->swx_ctx, (const uint8_t *const *)d->decoded_frame->data, d->decoded_frame->linesize, 0,
+			d->decoded_frame->height, dst_data, dst_linesize);
+
+		unsigned char * out_data = malloc(sizeof(unsigned char) * ret);
+		memcpy(out_data, dst_data[0], ret);
+		FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x02, (unsigned long long)d->decoded_frame->pkt_dts, (unsigned long long)d->decoded_frame->pts, out_data, ret);
+				
+		//printf("OUT>> pts:%d, dts:%d \n", out_frame->ptime, out_frame->dtime);
+		priority_queue_push(queue, out_frame, out_frame->ptime);
+		av_frame_unref(d->decoded_frame);
+		av_freep(&dst_data[0]);
 	}
 
 	return 0;

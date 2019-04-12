@@ -148,6 +148,7 @@ function _player(c_player) {
     this.inited = false;
     this.finish = 0;
     this.player_cur_time = 0;
+    this.media_start_pts = -1; // 媒体第一个pts；
 
     // 帧准备
     this.retry = !1;
@@ -161,7 +162,7 @@ function _player(c_player) {
     this.canvas_ctx;
     this.cur_video_pts;
     this.last_dis_time = 0; // 上次显示帧的时间
-    this.video_frame_buffer_arr = new Array(72); // 视频帧缓存
+    this.video_frame_buffer_arr = new Array(96); // 视频帧缓存
     this.video_frame_count = 0; // 视频帧计数
 
     // 音频输出
@@ -169,7 +170,7 @@ function _player(c_player) {
     this.audio_ctx;
     this.last_duration = 0; // 上一帧时长
     this.last_start_time = 0; // 上一帧开始时间
-    this.frame_duration = 0; // 音频帧时长
+    this.next_audio_pts = 0;
 
     // 初始化
     this.init = function (width, height, canvasElem) {
@@ -194,6 +195,23 @@ function _player(c_player) {
         this.canvas_ctx.putImageData(imgData, 0, 0);
         this.inited = true;
     };
+    this._frame_time_temp = -1;
+    this._getFrameTime = function () {
+
+        if (this._frame_time_temp != -1) {
+            return this._frame_time_temp;
+        }
+
+        if (this.cur_video_pts == 0) {
+            return 0;
+        }
+        let left_real_time = this.last_start_time + this.last_duration - performance.now();
+        let left_pts_time = this.next_audio_pts - this.cur_video_pts;
+        let left_frame_count = left_pts_time / 40;
+        this._frame_time_temp = (left_real_time / left_frame_count) - 43;
+        this._frame_time_temp = this._frame_time_temp > 40 ? 40 : this._frame_time_temp;
+        return this._frame_time_temp;
+    };
 
     // 渲染
     this._render = function () {
@@ -208,9 +226,9 @@ function _player(c_player) {
 
         // 视频渲染
         if (this.last_start_time != 0) {
-            if ((now - this.last_dis_time) >= 40) {
-
-                var min_idx = 0;
+            if ((now - this.last_dis_time) >= this._getFrameTime()) {
+                this._frame_time_temp = -1;
+                var min_idx = -1;
                 var min_frame_time = -1;
 
                 // 找到最小的时间
@@ -224,8 +242,8 @@ function _player(c_player) {
                     let f_time = this.video_frame_buffer_arr[i].time;
 
                     // 抛弃过时帧
-                    if (this.cur_video_pts >= f_time) {
-                        console.log("throw:" + f_time);
+                    if (this.cur_video_pts > f_time) {
+                        console.log("throw:" + f_time + " this.cur_video_pts:" + this.cur_video_pts + " prt:" + this.video_frame_buffer_arr[i].dataPtr);
                         Module._free(this.video_frame_buffer_arr[i].dataPtr);
                         this.video_frame_buffer_arr[i].time = -1;
                         continue;
@@ -243,25 +261,30 @@ function _player(c_player) {
                     }
                 }
 
-                // 帧时间
-                let f_time = this.video_frame_buffer_arr[min_idx].time;
-                let imgData = this.video_frame_buffer_arr[min_idx].data;
-                let dataPtr = this.video_frame_buffer_arr[min_idx].dataPtr;
-                let j = 0, imgIdx = 0;
+                if (min_idx >= 0) {
 
-                for (; imgIdx < imgData.data.length;) {
-                    imgData.data[imgIdx] = Module.HEAPU8[dataPtr + j];
-                    imgData.data[imgIdx + 1] = Module.HEAPU8[dataPtr + j + 1];
-                    imgData.data[imgIdx + 2] = Module.HEAPU8[dataPtr + j + 2];
-                    imgData.data[imgIdx + 3] = 255;
-                    imgIdx = imgIdx + 4;
-                    j = j + 3;
+                    // 帧时间
+                    let f_time = this.video_frame_buffer_arr[min_idx].time;
+                    let imgData = this.video_frame_buffer_arr[min_idx].data;
+                    let dataPtr = this.video_frame_buffer_arr[min_idx].dataPtr;
+                    let j = 0, imgIdx = 0;
+
+                    for (; imgIdx < imgData.data.length;) {
+                        imgData.data[imgIdx] = Module.HEAPU8[dataPtr + j];
+                        imgData.data[imgIdx + 1] = Module.HEAPU8[dataPtr + j + 1];
+                        imgData.data[imgIdx + 2] = Module.HEAPU8[dataPtr + j + 2];
+                        imgData.data[imgIdx + 3] = 255;
+                        imgIdx = imgIdx + 4;
+                        j = j + 3;
+                    }
+                    Module._free(dataPtr);
+                    this.canvas_ctx.putImageData(imgData, 0, 0);
+                    this.cur_video_pts = f_time;
+                    this.last_dis_time = now;
+                    this.video_frame_buffer_arr[min_idx].time = -1;
+                } else {
+                    console.log("no frame waiting");
                 }
-                Module._free(dataPtr);
-                this.canvas_ctx.putImageData(imgData, 0, 0);
-                this.cur_video_pts = f_time;
-                this.last_dis_time = now;
-                this.video_frame_buffer_arr[min_idx].time = -1;
             }
         }
         var now = performance.now();
@@ -287,12 +310,15 @@ function _player(c_player) {
     this._prepare_source = function () {
 
         var jframe_arr = new Array(this.MERGE_COUNT);
-        var jframe_count = 0; // 多少个js音频帧
-        var data_byte_count = 0;
-        var total_frame_count = 0; // 单声道帧数
-        var audio_buffer;
-        var channels;
-        for (; jframe_count < this.MERGE_COUNT;) {
+        var audio_frame_count = 0; // 多少个js音频帧
+        var audio_pcm_frame_count = 0; // 单声道pcm帧数
+        var channels; // 声道数
+
+        var audio_future_pts = -1;
+
+        var _video_frame_count = 0;
+
+        for (; audio_frame_count < this.MERGE_COUNT;) {
             var jframePtr = Module._js_poll_frame(this.c_player);
 
             if (jframePtr == 0) {
@@ -306,7 +332,7 @@ function _player(c_player) {
             frame_item.len = Module.HEAPU32[jframePtr >> 2];
 
             // 当前时间
-            frame_item.cur_video_pts = Module.HEAPU32[(jframePtr >> 2) + 1];
+            frame_item.cur_pts = Module.HEAPU32[(jframePtr >> 2) + 1];
 
             // 帧类型
             frame_item.av_type = Module.HEAPU32[(jframePtr >> 2) + 2];
@@ -327,35 +353,43 @@ function _player(c_player) {
                 }
 
                 if (this.video_frame_buffer_arr[targe_index].time != -1) {
+                    console.log("overwrite:" + this.video_frame_buffer_arr[targe_index].time + " this.cur_video_pts:" + this.cur_video_pts + " prt:" + this.video_frame_buffer_arr[targe_index].dataPtr);
                     Module._free(this.video_frame_buffer_arr[targe_index].dataPtr);
                     this.video_frame_buffer_arr[targe_index].time = -1;
                 }
 
 				this.video_frame_buffer_arr[targe_index].dataPtr = frame_item.dataPtr;
-				this.video_frame_buffer_arr[targe_index].time = frame_item.cur_video_pts;
+				this.video_frame_buffer_arr[targe_index].time = frame_item.cur_pts;
 				this.video_frame_count++;
+
             } else {
+
+                if (this.media_start_pts < 0) {
+                    this.media_start_pts = frame_item.cur_pts;
+                }
+
+                audio_future_pts = frame_item.cur_pts;
 
                 // 样本帧数
                 channels = frame_item.channels;
-                total_frame_count += frame_item.len / 4 / frame_item.channels; // 单声道帧数
-                jframe_arr[jframe_count] = frame_item;
-                jframe_count++;
+                audio_pcm_frame_count += frame_item.len / 4 / frame_item.channels; // 单声道帧数
+                jframe_arr[audio_frame_count] = frame_item;
+                audio_frame_count++;
             }
             Module._free(jframePtr);
         }
 		
-        if (jframe_count == 0) {
+        if (audio_frame_count == 0) {
             this.retry = !0;
             this.last_try_time = performance.now();
             return;
         }
 
         // 音频
-        audio_buffer = this.audio_ctx.createBuffer(channels, total_frame_count, this.audio_ctx.sampleRate);
+        var audio_buffer = this.audio_ctx.createBuffer(channels, audio_pcm_frame_count, this.audio_ctx.sampleRate);
 
         let idx = 0;
-        for (var i = 0; i < jframe_count; i++) {
+        for (var i = 0; i < audio_frame_count; i++) {
             let frame_item = jframe_arr[i];
             let frame_count = frame_item.len / 4 / frame_item.channels;
 
@@ -386,12 +420,16 @@ function _player(c_player) {
             future_time = 0;
             this.last_start_time = now;
             this.last_duration = audio_buffer.duration * 1000;
+
         } else {
             future_time = this.last_start_time + this.last_duration - now;
             this.last_start_time = this.last_duration + this.last_start_time;
             this.last_duration = audio_buffer.duration * 1000;
         }
-        this.frame_duration = (audio_buffer.duration * 1000) / (jframe_count + 1);
+        if (audio_future_pts > 0) {
+            source.onended = function () { this.cur_video_pts = audio_future_pts }.bind(this);
+        }
+        this.next_audio_pts = audio_future_pts;
         source.start((future_time - 8) < 0 ? 0 : (future_time - 8) / 1e3);
         return 0;
     };

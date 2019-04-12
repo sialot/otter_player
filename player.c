@@ -30,62 +30,42 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 
 	p->media_start_timestamp = 0;
 	p->current_play_time = 0;
-	p->media_duration = 0;
 	p->status = INIT_FINISH;
 	p->display_height = display_height;
 	p->display_width = display_width;
-	p->media_url[0] = '\0';
-	p->loader = NULL;
 	p->demuxer = NULL;
-	return p;
-}
+	p->ts_pkt_queue = NULL;
+	p->ts_pkt_buffer = NULL;
 
-// 设定媒体
-EM_PORT_API(int) set_media(OTTER_PLAYER *p, char * media_url, int duration)
-{
-	//printf("set media start >>url:%s, duration:%d\n", p->media_url, duration);
-
-	if (p == NULL) {
-		printf("player is null!\n");
-		return -1;
-	}
-
-	// 播放中不允许重设媒体
-	if (p->status == WORKING)
+	BLOCK_QUEUE *ts_queue = block_queue_create(1);
+	if (ts_queue == NULL)
 	{
-		printf("player media is playing or pausing ,can't set media!\n");
-		return -1;
+		printf("ts_queue init failed!\n");
+		destroy_player(p);
+		return NULL;
 	}
+	p->ts_pkt_queue = ts_queue;
 
-	// 清空现有缓存队列
-	_destroy_loader(p);
-
-	//pes 队列清空
-	_destroy_demuxer(p);
-
-	p->media_start_timestamp = 0;
-	p->current_play_time = 0;
-	p->media_duration = 0;
-	p->media_duration = duration;
-	strcpy(p->media_url, media_url);
+	if (p->ts_pkt_buffer == NULL)
+	{
+		BYTE_LIST *buffer = byte_list_create(10000);
+		p->ts_pkt_buffer = buffer;
+	}
 
 	// 创建必要对象
-	if (_create_loader(p, 0) || _create_demuxer(p) || _create_decoder_master(p))
+	if (_create_demuxer(p) || _create_decoder_master(p))
 	{
 		printf("can't create loadder or demuxer or decoder_master!\n");
 		destroy_player(p);
-		return -1;
+		return NULL;
 	}
-	ts_loader_range_load(p->loader);
 	printf("player is ready !\n");
-	return 0;
+	return p;
 }
 
 // 按时间播放
-EM_PORT_API(int) play_or_seek(OTTER_PLAYER *p, int time)
+EM_PORT_API(int) play(OTTER_PLAYER *p)
 {
-	printf("seek(%d) \n", time);
-
 	if (p == NULL) {
 		printf("player is null!\n");
 		return -1;
@@ -112,14 +92,20 @@ EM_PORT_API(int) play_or_seek(OTTER_PLAYER *p, int time)
 		pthread_attr_destroy(&attr);
 	}
 
-	if (p->status == WORKING && p->loader->start_time != time)
-	{
-		ts_loader_seek(p->loader, time);
-		pes_queue_clean(p->demuxer);
-		decode_queue_clean(p->decoder_master);
-	}
-
 	return 0;
+}
+// 队列是否为空
+EM_PORT_API(int) js_can_load_file(OTTER_PLAYER *p)
+{
+	return (p->ts_pkt_buffer->used_len == 0);
+}
+
+// js推送媒体数据
+EM_PORT_API(void) js_push_data(OTTER_PLAYER * p, unsigned char * bytes, int len)
+{
+
+	byte_list_add_list(p->ts_pkt_buffer, bytes, len);
+	block_queue_push(p->ts_pkt_queue, p->ts_pkt_buffer);
 }
 
 // js获取帧数据
@@ -155,39 +141,6 @@ EM_PORT_API(JS_FRAME *) js_poll_frame(OTTER_PLAYER *p)
 	jframe->data = f->data;
 	free(f);
 	return jframe;
-}
-
-int _create_loader(OTTER_PLAYER * p, int time)
-{
-	if (p == NULL) {
-		printf("player is null!\n");
-		return -1;
-	}
-
-	TS_LOADER *loader = ts_loader_create(p->media_url, p->media_duration, 0);
-	if (loader == NULL)
-	{
-		printf("can't create loadder!\n");
-		return -1;
-	}
-	p->loader = loader;
-	return 0;
-}
-
-int _destroy_loader(OTTER_PLAYER *p)
-{
-	if (p == NULL) {
-		printf("player is null!\n");
-		return -1;
-	}
-
-	if (p->loader == NULL)
-	{
-		return 0;
-	}
-	ts_loader_destroy(p->loader);
-	p->loader = NULL;
-	return 0;
 }
 
 int _create_demuxer(OTTER_PLAYER * p)
@@ -275,9 +228,16 @@ void * _media_demux_start(void * args)
 
 	while (p->status == WORKING)
 	{
-		BYTE_LIST *ts_pkt = poll_ts_pkt(p->loader);
-		demux_ts_pkt(p->demuxer, ts_pkt->pBytes);
-		byte_list_destroy(ts_pkt);
+		BYTE_LIST *ts_pkt = block_queue_poll(p->ts_pkt_queue);
+
+		int len = ts_pkt->used_len;
+		for (int i = 0; i < len / 188; i++)
+		{
+			unsigned char * data = ts_pkt->pBytes + i * 188;
+			demux_ts_pkt(p->demuxer, data);
+		}
+
+		byte_list_clean(ts_pkt);
 	}
 	printf("thread exit [%s]!\n", __FUNCTION__);
 	return NULL;
@@ -354,9 +314,17 @@ EM_PORT_API(int) destroy_player(OTTER_PLAYER *p)
 	p->status = STOPED;
 
 	// 销毁加载器和对应线程
-	_destroy_loader(p);
 	_destroy_demuxer(p);
 	_destroy_decoder_master(p);
+
+	if (p->ts_pkt_buffer != NULL)
+	{
+		byte_list_destroy(p->ts_pkt_buffer);
+	}
+	if (p->ts_pkt_queue != NULL)
+	{
+		block_queue_destroy(p->ts_pkt_queue);
+	}
 
 	free(p);
 	return 0;

@@ -1,4 +1,4 @@
-<html>
+﻿<html>
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 <title>webassembly demo</title>
@@ -8,7 +8,7 @@ var player;
 Module = {};
 Module.onRuntimeInitialized = function () {
 	var canv = document.getElementById("canvas");
-	player = otter_player.create_player(480, 320, canv);
+	player = otter_player.create_player(640, 360, canv);
 	var url = "http://192.168.18.201/out/2.ts";
 	player.set_media(url, 6519);
 	//player.play();
@@ -20,7 +20,7 @@ Module.onRuntimeInitialized = function () {
 <script src="http://192.168.18.201/out/player.js?222142"></script>
 </head>
 <body style="" >
-<canvas id="canvas" width="480" height="320" style="border:1px black solid"></canvas>
+<canvas id="canvas" width="640" height="360" style="border:1px black solid"></canvas>
 <br />
 <input type="button" value="play" onclick="player.play()"/>
 </body>

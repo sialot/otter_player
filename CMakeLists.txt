@@ -4,11 +4,11 @@
 cmake_minimum_required (VERSION 3.8)
 
 project ("otter_player")
- 
+  
 include_directories("include")
 link_directories(${PROJECT_SOURCE_DIR}/lib)
  
-# 指定源文件 
+# 指定源文件
 aux_source_directory(. DIR_SRCS) 
 
 # 指定生成目标

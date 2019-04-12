@@ -57,6 +57,11 @@ int is_byte_list_finish(BYTE_LIST * bl)
 
 	return 0;
 }
+int byte_list_clean(BYTE_LIST *bl)
+{
+	bl->used_len = 0;
+	return 0;
+}
 
 int byte_list_destroy(BYTE_LIST *bl)
 {

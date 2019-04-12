@@ -101,7 +101,7 @@ int main()
 	play_or_seek(p, 0);
 	*/
 
-	fileRead("C:\\1.ts","D:\\1111.aac");
+	fileRead("C:\\2.ts","D:\\1111.aac");
 
 	/*long long media_file_size = 34359738368000000;
 	printf("%lld\n", media_file_size);
@@ -155,7 +155,7 @@ int fileRead(char *filePath, char *outPath) {
 
 	size_t rs = 0;
 	TS_DEMUXER *d = ts_demuxer_create(512);
-	DECODER_MASTER *m = decoder_master_create(480, 320);
+	DECODER_MASTER *m = decoder_master_create(240, 160);
 	unsigned char *pkt = malloc(sizeof(unsigned char) * 188);
 
 	int ts_num = 0;
@@ -182,21 +182,21 @@ int fileRead(char *filePath, char *outPath) {
 
 						if (f->av_type == 0)
 						{
-							printf("<<<<< PCM:%lld \n", f->ptime);
-							fwrite(f->data, 1, f->len, outfile);
+							//printf("<<<<< PCM:%lld \n", f->ptime);
+							//fwrite(f->data, 1, f->len, outfile);
 						}
 						else
 						{
 							char outPath1[1024];
 
-							sprintf(outPath1, "D:\\out_pic_%d.bmp", x);
+							sprintf(outPath1, "D:\\out\\out_pic_%d.bmp", f->ptime);
 
 							FILE *outfile1;
-							printf("%s\n", outPath1);
-						//	MySaveBmp(outPath1, f->data, 480, 320);
+							//printf("%s\n", outPath1);
+							MySaveBmp(outPath1, f->data, 240, 160);
 
 							//fwrite(f->data, 1, f->len, outfile1);
-							printf("<<<<< RGB:%d \n", x);
+							//printf("<<<<< RGB:%d \n", f->ptime);
 
 						}
 						x++;
@@ -209,7 +209,7 @@ int fileRead(char *filePath, char *outPath) {
 
 		}
 
-	} while (rs != 0);
+	} while (rs != 0 && x < 5000);
 
 	decoder_master_destroy(m);
 	ts_demuxer_destroy(d);

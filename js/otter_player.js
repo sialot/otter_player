@@ -1,122 +1,184 @@
-// 供C调用，获取远程文件大小
-function JS_XHRGetFileSize(loadPtr, url) {
-    var request = new XMLHttpRequest();
-    var size = 0;
+/**
+ * OTTER_PLAYER
+ *
+ * @author sialot
+ */
 
-    request.open("GET", url, true);
-    request.responseType = "arraybuffer";
-    request.url = url + "?" + Math.random();
-    request.setRequestHeader("Range", "bytes=0-187");
-    request.onreadystatechange = function () {
-        if (request.readyState == 4) {
-            if (request.status == 206) {
-                var content_range = request.getResponseHeader("Content-Range");
-                if (content_range != undefined) {
-                    size = content_range.split("/")[1];
-                }
-                Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'string'], [loadPtr, size]);
-            }
-            else {
-                console.error("C CALL JS, JS_XHRGetFileSize failed!");
-                Module.ccall('_xhr_on_file_size_success', 'null', ['number', 'number'], [loadPtr, 0]);
-            }
-        }
-    };
-    request.send();
-}
-
-function JS_XHRGetFile(loadPtr, url, start, end) {
-    var request = new XMLHttpRequest();
-    var range = "bytes=" + start + "-" + end;
-    var len = 0;
-    request.open("GET", url, true);
-    request.responseType = "arraybuffer";
-    request.url = url + "?" + Math.random();
-    request.setRequestHeader("Range", range);
-    request.onreadystatechange = function () {
-        if (request.readyState == 4) {
-            if (request.status == 206) {
-
-                var arrayBuffer = request.response;
-                if (arrayBuffer) {
-                    var byteArray = new Uint8Array(arrayBuffer);
-                    len = byteArray.byteLength;
-
-                    var ptr = Module._malloc(len);
-                    for (var i = 0; i < len; i++) {
-                        Module.HEAP8[ptr + i] = byteArray[i];
-                    }
-
-                    Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, ptr, len]);
-                } else {
-                    Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, 0, len]);
-                }
-            }
-            else {
-                console.error("C CALL JS, JS_XHRGetFile failed!");
-                Module.ccall('_xhr_on_load_success', 'null', ['number', 'number', 'number'], [loadPtr, 0, len]);
-            }
-        }
-    };
-    request.send();
-}
-
-// ts加载器
-function ts_loader() {
-    this.media_file_size;
-    this.current_range;
-    this.duration;
-    this.start_time;
-    this.media_url;
-    this.is_can_seek;
-    this.is_finish; 
-    this.init = function (media_url, duration, start_time) {
+// TS媒体加载器
+function ts_loader(c_player) {
+    this.PKT_NUM_PER_TIME = 2000; // 每次加载包数
+    this.media_file_size = 0; // 媒体大小
+    this.current_range = 0; // 当前加载位置
+    this.duration = 0; // 媒体时长
+    this.cur_time = 0; // 当前时长
+    this.media_url = ""; // 媒体地址
+    this.is_can_seek = false; // 是否可时移
+    this.is_finish = false; // 是否结束
+    this.data_buffer; // 数据缓存
+    this.c_player = c_player;
+    this.init = function (media_url, duration, cur_time) {
         this.media_file_size = 0;
         this.current_range = 0;
         this.duration = duration;
-        this.start_time = start_time;
+        this.cur_time = cur_time;
         this.media_url = media_url;
     };
-    this.loadFile = function () {
 
+    // 开始加载
+    this.start = function () {
 
+        // 获取文件大小
+        var request = new XMLHttpRequest();
+        request.open("GET", this.media_url, true);
+        request.responseType = "arraybuffer";
+        request.url = this.media_url + "?" + Math.random();
+        request.setRequestHeader("Range", "bytes=0-187");
+        request.onreadystatechange = function () {
+            if (request.readyState == 4) {
+                if (request.status == 206) {
+                    var content_range = request.getResponseHeader("Content-Range");
+                    if (content_range != undefined) {
+                        this.media_file_size = content_range.split("/")[1];
+                    }
 
+                    // 当前时间已经结束
+                    if (this.cur_time > this.duration){
+                        this.current_range = this.media_file_size;
+                        this.is_finish = true;
+                    }
+
+                    // 可时移
+                    if (this.media_file_size > 0 && this.duration > 0)
+                    {
+                        // 估算加载位置
+                        var wishSize = (this.cur_time / this.duration) * this.media_file_size;
+                        this.current_range = Math.floor(wishSize / 188.0) * 188; 
+                        this.is_can_seek = true;
+                    }
+
+                    // 分段架子啊
+                    this._loadData();
+                }
+                else {
+                    console.error("ts file size load failed!");
+                    this.is_finish = true;
+                }
+            }
+        }.bind(this);
+        request.send();
     };
 
+    // 分段加载
+    this._loadData= function () {
 
+        if (this.is_finish) {
+            return;
+        }
+
+        // 获得range
+        let start = this.current_range;
+        let end = start + this.PKT_NUM_PER_TIME * 188 - 1;
+        if (end >this.media_file_size) {
+            end = this.media_file_size - 1;
+        }
+
+        // 可以继续添加数据
+        if (Module._js_can_load_file(this.c_player)) {
+            var request = new XMLHttpRequest();
+            var range = "bytes=" + start + "-" + end;
+            //console.log("load data:" + range);
+            var len = 0;
+            request.open("GET", this.media_url, true);
+            request.responseType = "arraybuffer";
+            request.url = this.media_url + "?" + Math.random();
+            request.setRequestHeader("Range", range);
+            request.onreadystatechange = function () {
+                if (request.readyState == 4) {
+                    if (request.status == 206) {
+
+                        var arrayBuffer = request.response;
+                        if (arrayBuffer) {
+                            var byteArray = new Uint8Array(arrayBuffer);
+                            len = byteArray.byteLength;
+
+                            // 初始化缓存
+                            if (this.data_buffer == undefined) {
+                                this.data_buffer = Module._malloc(len);
+                            }
+
+                            // 为缓存赋值
+                            for (var i = 0; i < len; i++) {
+                                Module.HEAP8[this.data_buffer + i] = byteArray[i];
+                            }
+
+                            // 调用C输入数据
+                            Module.ccall('js_push_data', 'null', ['number', 'number', 'number'], [this.c_player, this.data_buffer, len]);
+
+                            // 更新range
+                            this.current_range += this.PKT_NUM_PER_TIME * 188;
+                            if (this.media_file_size != 0 && this.current_range >= this.media_file_size) {
+                                this.is_finish = true;
+                            }
+                            else {
+
+                                // 循环加载
+                                setTimeout(function () { this._loadData() }.bind(this), 20);
+                            }
+                        }
+                    }
+                    else {
+                        console.error("ts file load failed!");
+                    }
+                }
+            }.bind(this);
+            request.send();
+        } else {
+            
+            // 循环加载
+            setTimeout(function () { this._loadData() }.bind(this), 100);
+        }
+    };
 }
 
 // JS player类定义
 function _player(c_player) {
     this.c_player = c_player;
-    this.canvasElem;
-    this.audio_player;
-	this.cur_time;
-    this.c_player = c_player;
-    this.MERGE_COUNT = 48;
-    this.audio_ctx;
-    this.retry = !1;
-    this.last_duration = 0; // 上一帧时长
-    this.last_start_time = 0; // 上一帧开始时间
-    this.start_time = 0;
-    this.last_try_time = 0;
+    this.play_state = 0; // 0 初始 1播放 2暂停 3停止
+    this.ts_loader = new ts_loader(c_player);
+    this.inited = false;
     this.finish = 0;
-    this.frame_duration = 0;
-    this.audio_frame_num = 0;
-    this.played_audio_frame_num = 0;
-    this.arr_idx = 0;
-    this.frame_arr = new Array(150);
-    this.canvas_ctx;
+    this.player_cur_time = 0;
+
+    // 帧准备
+    this.retry = !1;
+    this.last_try_time = 0;
+    this.MERGE_COUNT = 48;
+
+    // 视频输出
     this.witdh = 0;
     this.height = 0;
-    this.inited = false;
+    this.canvasElem;
+    this.canvas_ctx;
+    this.cur_video_pts;
+    this.last_dis_time = 0; // 上次显示帧的时间
+    this.video_frame_buffer_arr = new Array(72); // 视频帧缓存
+    this.video_frame_count = 0; // 视频帧计数
+
+    // 音频输出
+    this.audio_player;
+    this.audio_ctx;
+    this.last_duration = 0; // 上一帧时长
+    this.last_start_time = 0; // 上一帧开始时间
+    this.frame_duration = 0; // 音频帧时长
+
+    // 初始化
     this.init = function (width, height, canvasElem) {
         this.current_time = 0;
         let AudioContext = window.AudioContext || window.webkitAudioContext;
         this.audio_ctx = AudioContext ? new AudioContext() : '';
         this.witdh = width;
         this.height = height;
-		this.cur_time = 0;
+		this.cur_video_pts = 0;
         this.status = 0;
 
         this.canvasElem = canvasElem;
@@ -130,9 +192,10 @@ function _player(c_player) {
             imgData.data[i + 3] = 255;
         }
         this.canvas_ctx.putImageData(imgData, 0, 0);
-		this.inited = true;
+        this.inited = true;
     };
-	this.last_dis_time =0;
+
+    // 渲染
     this._render = function () {
         if (this.finish) {
             console.log("audio finish!");
@@ -142,51 +205,68 @@ function _player(c_player) {
         if (this.last_start_time != 0 && (this.last_start_time + this.last_duration - now) < -5000) {
             this.finish = 1;
         }
-        if (this.start_time != 0) {				
-		
-            for (i = 0; i < this.frame_arr.length; i++) {
 
-                if (this.frame_arr[i] == undefined) {
-                    continue;
+        // 视频渲染
+        if (this.last_start_time != 0) {
+            if ((now - this.last_dis_time) >= 40) {
+
+                var min_idx = 0;
+                var min_frame_time = -1;
+
+                // 找到最小的时间
+                for (i = 0; i < this.video_frame_buffer_arr.length; i++) {
+
+                    // 跳过空数据
+                    if (this.video_frame_buffer_arr[i] == undefined || this.video_frame_buffer_arr[i].time == -1) {
+                        continue;
+                    }
+                  
+                    let f_time = this.video_frame_buffer_arr[i].time;
+
+                    // 抛弃过时帧
+                    if (this.cur_video_pts >= f_time) {
+                        console.log("throw:" + f_time);
+                        Module._free(this.video_frame_buffer_arr[i].dataPtr);
+                        this.video_frame_buffer_arr[i].time = -1;
+                        continue;
+                    }
+
+                    // 时间对比
+                    if (min_frame_time == -1) {
+                        min_frame_time = f_time;
+                        min_idx = i;
+                    } else {
+                        if (f_time < min_frame_time) {
+                            min_frame_time = f_time;
+                            min_idx = i;
+                        }
+                    }
                 }
 
-				if (this.frame_arr[i].time == -1) {
-					continue;
-				}					
-				let f_time = this.frame_arr[i].time;
-				
-				if((now - this.last_dis_time) >= 40){
-				
-					if(this.cur_time >= f_time){					
-						Module._free(this.frame_arr[i].dataPtr);
-						this.frame_arr[i].time = -1;
-					}else{
-						var imgData = this.frame_arr[i].data;
-						var dataPtr = this.frame_arr[i].dataPtr;
-						var j = 0, imgIdx = 0;
-						
-						for (; imgIdx < imgData.data.length;) {
-							imgData.data[imgIdx] = Module.HEAPU8[dataPtr + j];
-							imgData.data[imgIdx + 1] = Module.HEAPU8[dataPtr + j + 1];
-							imgData.data[imgIdx + 2] = Module.HEAPU8[dataPtr + j + 2];
-							imgData.data[imgIdx + 3] = 255;
-							imgIdx = imgIdx + 4;
-							j = j + 3;
-						}	
-						console.log(">>:" + f_time);
-						Module._free(dataPtr);
-						this.canvas_ctx.putImageData(imgData, 0, 0);
-						this.cur_time = f_time;
-						this.last_dis_time = now;
-						this.frame_arr[i].time = -1;
-					}
-				
-				}else{
-					continue;
-				}
-			}
+                // 帧时间
+                let f_time = this.video_frame_buffer_arr[min_idx].time;
+                let imgData = this.video_frame_buffer_arr[min_idx].data;
+                let dataPtr = this.video_frame_buffer_arr[min_idx].dataPtr;
+                let j = 0, imgIdx = 0;
+
+                for (; imgIdx < imgData.data.length;) {
+                    imgData.data[imgIdx] = Module.HEAPU8[dataPtr + j];
+                    imgData.data[imgIdx + 1] = Module.HEAPU8[dataPtr + j + 1];
+                    imgData.data[imgIdx + 2] = Module.HEAPU8[dataPtr + j + 2];
+                    imgData.data[imgIdx + 3] = 255;
+                    imgIdx = imgIdx + 4;
+                    j = j + 3;
+                }
+                Module._free(dataPtr);
+                this.canvas_ctx.putImageData(imgData, 0, 0);
+                this.cur_video_pts = f_time;
+                this.last_dis_time = now;
+                this.video_frame_buffer_arr[min_idx].time = -1;
+            }
         }
         var now = performance.now();
+
+        // 重试
         if (this.retry) {
             if ((now - this.last_try_time) > 200) {
                 this.retry = !1;
@@ -195,18 +275,17 @@ function _player(c_player) {
             }
         } else {
 
-            // 上一个起播 100ms之后，准备下一个
+            // 缓存准备
             if ((this.last_start_time + this.last_duration - now) <= this.last_duration / 2) {
-		
                 this._prepare_source();
-	
             }
         }
 		var id = requestAnimationFrame(function () { this._render() }.bind(this));
     },
+
+    // 缓存准备
     this._prepare_source = function () {
 
-        // console.log("prepare in!");
         var jframe_arr = new Array(this.MERGE_COUNT);
         var jframe_count = 0; // 多少个js音频帧
         var data_byte_count = 0;
@@ -227,7 +306,7 @@ function _player(c_player) {
             frame_item.len = Module.HEAPU32[jframePtr >> 2];
 
             // 当前时间
-            frame_item.cur_time = Module.HEAPU32[(jframePtr >> 2) + 1];
+            frame_item.cur_video_pts = Module.HEAPU32[(jframePtr >> 2) + 1];
 
             // 帧类型
             frame_item.av_type = Module.HEAPU32[(jframePtr >> 2) + 2];
@@ -241,14 +320,20 @@ function _player(c_player) {
             // 视频
             if (frame_item.av_type == 1) {
 
-                if(this.frame_arr[this.arr_idx % this.frame_arr.length] == undefined){
+                let targe_index = this.video_frame_count % this.video_frame_buffer_arr.length;
+                if(this.video_frame_buffer_arr[targe_index] == undefined){
                     var f_data = this.canvas_ctx.createImageData(this.canvasElem.width, this.canvasElem.height);
-                    this.frame_arr[this.arr_idx % this.frame_arr.length] = { data: f_data, time: -1, dataPtr: 0 };
+                    this.video_frame_buffer_arr[targe_index] = { data: f_data, time: -1, dataPtr: 0 };
                 }
 
-				this.frame_arr[this.arr_idx % this.frame_arr.length].dataPtr = frame_item.dataPtr;
-				this.frame_arr[this.arr_idx % this.frame_arr.length].time = frame_item.cur_time;
-				this.arr_idx++;
+                if (this.video_frame_buffer_arr[targe_index].time != -1) {
+                    Module._free(this.video_frame_buffer_arr[targe_index].dataPtr);
+                    this.video_frame_buffer_arr[targe_index].time = -1;
+                }
+
+				this.video_frame_buffer_arr[targe_index].dataPtr = frame_item.dataPtr;
+				this.video_frame_buffer_arr[targe_index].time = frame_item.cur_video_pts;
+				this.video_frame_count++;
             } else {
 
                 // 样本帧数
@@ -256,7 +341,6 @@ function _player(c_player) {
                 total_frame_count += frame_item.len / 4 / frame_item.channels; // 单声道帧数
                 jframe_arr[jframe_count] = frame_item;
                 jframe_count++;
-                this.audio_frame_num++;
             }
             Module._free(jframePtr);
         }
@@ -267,6 +351,7 @@ function _player(c_player) {
             return;
         }
 
+        // 音频
         audio_buffer = this.audio_ctx.createBuffer(channels, total_frame_count, this.audio_ctx.sampleRate);
 
         let idx = 0;
@@ -301,7 +386,6 @@ function _player(c_player) {
             future_time = 0;
             this.last_start_time = now;
             this.last_duration = audio_buffer.duration * 1000;
-            this.start_time = now;
         } else {
             future_time = this.last_start_time + this.last_duration - now;
             this.last_start_time = this.last_duration + this.last_start_time;
@@ -312,6 +396,7 @@ function _player(c_player) {
         return 0;
     };
 
+    // 设定媒体
     this.set_media = function (url, duration) {
         if (!url) {
             console.error("url is undefined!");
@@ -321,25 +406,34 @@ function _player(c_player) {
             console.error("duration is undefined!");
             return;
         }
-        var ptr = allocate(intArrayFromString(url), 'i8', ALLOC_NORMAL);
-        Module._set_media(this.c_player, ptr, duration);
-        _free(ptr);
+        this.ts_loader.init(url, duration, this.player_cur_time)
+        this.ts_loader.start();
         return;
     };
+
+    // 播放
     this.play = function () {
         if (!this.inited) {
             return;
         }
 
-        Module._play_or_seek(this.c_player, 0);
-        this._render();
+        if (this.play_state == 0 || this.play_state == 2) {
+            Module._play(this.c_player);
+            this._render();
+            this.play_state = 1;
+        }
+
         return;
     };
+
+    // 时移
     this.seek = function (time) {
-        Module._play_or_seek(this.c_player, time);
+
+        // TODO
     };
     this.stop = function () {
-        Module._destroy_player(this.c_player);
+
+        // TODO
     };
 }
 
@@ -351,7 +445,7 @@ var otter_player = {
             return null;
         }
         var player = new _player(c_player);
-        setTimeout(function () { player.init(width, height, canvasElem); }, 5000);        
+        setTimeout(function () { player.init(width, height, canvasElem); }, 0);        
         return player;
     }
 };

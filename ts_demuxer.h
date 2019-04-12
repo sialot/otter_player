@@ -128,6 +128,8 @@ typedef struct TS_DEMUXER
 	HASH_MAP *global_buffer_map;          // 缓存map
 	int cur_program_num;                  // 当前节目号
 	PRIORITY_QUEUE *pkt_queue;
+	TS_PAT_PROGRAM *temp_programs;
+	TS_PMT_STREAM * temp_streams;
 } TS_DEMUXER;
 
 // 解封装模块创建

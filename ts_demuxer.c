@@ -17,6 +17,8 @@ TS_DEMUXER * ts_demuxer_create()
 	d->global_buffer_map = NULL;
 	d->pkt_queue = NULL;
 	d->cur_program_num = -1;
+	d->temp_programs = NULL;
+	d->temp_streams = NULL;
 
 	HASH_MAP *map = hash_map_create();
 	if (map == NULL)
@@ -120,6 +122,10 @@ void ts_demuxer_destroy(TS_DEMUXER * d)
 
 	// queue
 	priority_queue_destroy(d->pkt_queue);
+
+	// temp
+	free(d->temp_programs);
+	free(d->temp_streams);
 
 	// self
 	free(d);
@@ -341,11 +347,14 @@ static int _read_ts_PAT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHead
 		if (pat_loop_data_buffer != NULL)
 		{
 			// 抛弃旧的buffer数据
-			hash_map_destory_and_remove(d->global_buffer_map, pHeader->PID);
+			byte_list_clean(pat_loop_data_buffer);
 		}
-		pat_loop_data_buffer = byte_list_create(loopLength);
-		byte_list_add_list(pat_loop_data_buffer, pLoopData, loopLength);
-		hash_map_put(d->global_buffer_map, pHeader->PID, pat_loop_data_buffer);
+		else 
+		{
+			pat_loop_data_buffer = byte_list_create(loopLength);
+			byte_list_add_list(pat_loop_data_buffer, pLoopData, loopLength);
+			hash_map_put(d->global_buffer_map, pHeader->PID, pat_loop_data_buffer);
+		}
 	}
 
 	// 当前为最后分段，解析循环数据
@@ -361,9 +370,13 @@ static int _read_ts_PAT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHead
 
 		tempPat.program_count = pat_loop_data_buffer->used_len / 4;
 
-		TS_PAT_PROGRAM *temp_programs = (TS_PAT_PROGRAM *)malloc(sizeof(TS_PAT_PROGRAM) * tempPat.program_count);
+		if (d->temp_programs == NULL)
+		{
+			TS_PAT_PROGRAM *temp_programs = (TS_PAT_PROGRAM *)malloc(sizeof(TS_PAT_PROGRAM) * tempPat.program_count);
+			d->temp_programs = temp_programs;
+		}
 
-		tempPat.pPrograms = temp_programs;
+		tempPat.pPrograms = d->temp_programs;
 
 		for (int i = 0; i < pat_loop_data_buffer->used_len; i += 4)
 		{
@@ -386,12 +399,10 @@ static int _read_ts_PAT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHead
 		}
 			   
 		// 清空data
-		hash_map_destory_and_remove(d->global_buffer_map, pHeader->PID);
+		byte_list_clean(pat_loop_data_buffer);
 	}
 
 	_ts_pat_submit(d, tempPat);
-
-	free(tempPat.pPrograms);
 
 	if ((d->cur_program_num == -1) && (d->global_pat->program_count >= 1)) {
 		d->cur_program_num = d->global_pat->pPrograms[0].program_number;
@@ -559,12 +570,15 @@ int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 	{
 		if (pmt_loop_data_buffer != NULL)   // 抛弃旧的buffer数据
 		{
-			hash_map_destory_and_remove(d->global_buffer_map, pHeader->PID);
+			byte_list_clean(pmt_loop_data_buffer);
 		}
-		pmt_loop_data_buffer = byte_list_create(loopLength);
-		hash_map_put(d->global_buffer_map, pHeader->PID, pmt_loop_data_buffer);
+		else
+		{
+			pmt_loop_data_buffer = byte_list_create(loopLength);
+			byte_list_add_list(pmt_loop_data_buffer, pLoopData, loopLength);
+			hash_map_put(d->global_buffer_map, pHeader->PID, pmt_loop_data_buffer);
+		}
 	}
-	byte_list_add_list(pmt_loop_data_buffer, pLoopData, loopLength);
 
 	// 当前为最后分段，解析循环数据
 	if (tempPmt.section_number == tempPmt.last_section_number)
@@ -585,13 +599,16 @@ int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 
 		tempPmt.stream_count = streamcount;
 
-		TS_PMT_STREAM * temp_streams = (TS_PMT_STREAM *)malloc(sizeof(TS_PMT_STREAM) * tempPmt.stream_count);
-		if (temp_streams == NULL)
+		if (d->temp_streams == NULL)
 		{
-			return -1;
+			TS_PMT_STREAM * temp_streams = (TS_PMT_STREAM *)malloc(sizeof(TS_PMT_STREAM) * tempPmt.stream_count);
+			if (temp_streams == NULL)
+			{
+				return -1;
+			}
 		}
 
-		tempPmt.pStreams = temp_streams;
+		tempPmt.pStreams = d->temp_streams;
 
 		pos = 0;
 		streamcount = 0;
@@ -626,11 +643,9 @@ int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 		}
 		
 		// 清空data
-		hash_map_destory_and_remove(d->global_buffer_map, pHeader->PID);
+		byte_list_clean(pmt_loop_data_buffer);
 	}
 	_ts_pmt_submit(d, tempPmt);
-	
-	free(tempPmt.pStreams);
 
 	/* TEST LOG 
 	for (int i = 0; i < d->global_pmt->stream_count; i++) {
@@ -771,12 +786,14 @@ int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHea
 			}
 
 			// 释放空间
-			hash_map_destory_and_remove(d->global_buffer_map, pHeader->PID);
+			byte_list_clean(pesBuffer);
 		}
-		
-		// 创建缓存
-		pesBuffer = byte_list_create(finish_len);
-		hash_map_put(d->global_buffer_map, pHeader->PID, pesBuffer);
+		else
+		{
+			// 创建缓存
+			pesBuffer = byte_list_create(finish_len);
+			hash_map_put(d->global_buffer_map, pHeader->PID, pesBuffer);
+		}
 		
 		pesBuffer->finish_len = finish_len;
 
@@ -788,7 +805,8 @@ int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHea
 		int stream_id = payload[3];
 		//printf("%d (%d) > pre: %#X  stream_id: %d  PES_packet_length:%d  data: %d \n",	pHeader->PID, pHeader->payload_unit_start_indicator, pesStartPrefix, stream_id, PES_packet_length, payload_len);
 	}
-	else {
+	else
+	{
 
 		// 取出旧pes包缓存数据
 		BYTE_LIST *pesBuffer = (BYTE_LIST *)hash_map_get(d->global_buffer_map, pHeader->PID);
@@ -815,7 +833,7 @@ int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHea
 				}
 
 				// 释放空间
-				hash_map_destory_and_remove(d->global_buffer_map, pHeader->PID);
+				byte_list_clean(pesBuffer);
 			}
 		}
 		else {
@@ -830,54 +848,54 @@ int _receive_pes_payload(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHea
 // 解析pes包
 int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 {
-	TS_PES_PACKET *tp = (TS_PES_PACKET *)malloc(sizeof(TS_PES_PACKET));
+	TS_PES_PACKET tp;
 	unsigned char * pl = pPesByteList->pBytes;
 
-	tp->pes_start_code_prefix = pl[0] << 16 | pl[1] << 8	| pl[2];
-	if (tp->pes_start_code_prefix != 0x001) {
+	tp.pes_start_code_prefix = pl[0] << 16 | pl[1] << 8	| pl[2];
+	if (tp.pes_start_code_prefix != 0x001) {
 		return -1;
 	}
-	tp->stream_id = pl[3];
-	tp->PES_packet_length = pl[4] << 8 | pl[5];
-	tp->twobit_10 = pl[6] >> 6 & 0x3;
-	tp->PES_scrambling_control = pl[6] >> 4 & 0x3;
-	tp->PES_priority = pl[6] >> 3 & 0x1;
-	tp->data_alignment_indicator = pl[6] >> 2 & 0x1;
-	tp->copyright = pl[6] >> 1 & 0x1;
-	tp->original_or_copy = pl[6] & 0x1;
-	tp->PTS_DTS_flags = pl[7] >> 6 & 0x3;
-	tp->ESCR_flag = pl[7] >> 5 & 0x1;
-	tp->ES_rate_flag = pl[7] >> 4 & 0x1;
-	tp->DSM_trick_mode_flag = pl[7] >> 3 & 0x1;
-	tp->additional_copy_info_flag = pl[7] >> 2 & 0x1;
-	tp->PES_CRC_flag = pl[7] >> 1 & 0x1;
-	tp->PES_extension_flag = pl[7] & 0x1;
-	tp->PES_header_data_length = pl[8];
-	tp->av_type = s.av_type;
-	tp->stream_type = s.stream_type;
+	tp.stream_id = pl[3];
+	tp.PES_packet_length = pl[4] << 8 | pl[5];
+	tp.twobit_10 = pl[6] >> 6 & 0x3;
+	tp.PES_scrambling_control = pl[6] >> 4 & 0x3;
+	tp.PES_priority = pl[6] >> 3 & 0x1;
+	tp.data_alignment_indicator = pl[6] >> 2 & 0x1;
+	tp.copyright = pl[6] >> 1 & 0x1;
+	tp.original_or_copy = pl[6] & 0x1;
+	tp.PTS_DTS_flags = pl[7] >> 6 & 0x3;
+	tp.ESCR_flag = pl[7] >> 5 & 0x1;
+	tp.ES_rate_flag = pl[7] >> 4 & 0x1;
+	tp.DSM_trick_mode_flag = pl[7] >> 3 & 0x1;
+	tp.additional_copy_info_flag = pl[7] >> 2 & 0x1;
+	tp.PES_CRC_flag = pl[7] >> 1 & 0x1;
+	tp.PES_extension_flag = pl[7] & 0x1;
+	tp.PES_header_data_length = pl[8];
+	tp.av_type = s.av_type;
+	tp.stream_type = s.stream_type;
 	
 	// 可选域字节索引
 	int opt_field_idx = 9;
 
 	// PTS(presentation time stamp 显示时间标签)
 	// DTS(decoding time stamp 解码时间标签)标志位
-	if (tp->PTS_DTS_flags == 0x2) {
-		tp->PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
+	if (tp.PTS_DTS_flags == 0x2) {
+		tp.PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
 			pl[opt_field_idx + 1] << 22 |
 			(pl[opt_field_idx + 2] >> 1 & 0x7f) << 15 |
 			pl[opt_field_idx + 3] << 7 |
 			(pl[opt_field_idx + 4] >> 1 & 0x7f);
 		opt_field_idx += 5;
-		tp->DTS = tp->PTS;
+		tp.DTS = tp.PTS;
 	}
-	else if (tp->PTS_DTS_flags == 0x3) {
-		tp->PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
+	else if (tp.PTS_DTS_flags == 0x3) {
+		tp.PTS = (pl[opt_field_idx] >> 1 & 0x7) << 30 |
 			pl[opt_field_idx + 1] << 22 |
 			(pl[opt_field_idx + 2] >> 1 & 0x7f) << 15 |
 			pl[opt_field_idx + 3] << 7 |
 			(pl[opt_field_idx + 4] >> 1 & 0x7f);
 
-		tp->DTS = (pl[opt_field_idx + 5] >> 1 & 0x7) << 30 |
+		tp.DTS = (pl[opt_field_idx + 5] >> 1 & 0x7) << 30 |
 			pl[opt_field_idx + 6] << 22 |
 			(pl[opt_field_idx + 7] >> 1 & 0x7f) << 15 |
 			pl[opt_field_idx + 8] << 7 |
@@ -889,15 +907,15 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 	// 00111011 11111111 11111011 11111111 11111011 11111110
 	// 111 11 11111111 11111 11 11111111 11111
 	// 11 1111111
-	if (tp->ESCR_flag == 0x1) {
-		tp->ESCR_base = (pl[opt_field_idx] >> 3 & 0x7) << 30 |
+	if (tp.ESCR_flag == 0x1) {
+		tp.ESCR_base = (pl[opt_field_idx] >> 3 & 0x7) << 30 |
 			(pl[opt_field_idx] & 0x3) << 28 |
 			pl[opt_field_idx + 1] << 20 |
 			(pl[opt_field_idx + 2] >> 3 & 0x1f) << 15 |
 			(pl[opt_field_idx + 2] & 0x3) << 13 |
 			pl[opt_field_idx + 3] << 5 |
 			(pl[opt_field_idx + 4] >> 3 & 0x1f);
-		tp->ESCR_extension = (pl[opt_field_idx + 4] & 0x3) << 7 |
+		tp.ESCR_extension = (pl[opt_field_idx + 4] & 0x3) << 7 |
 			(pl[opt_field_idx + 5] >> 7 & 0x7f);
 
 		opt_field_idx += 6;
@@ -905,8 +923,8 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 
 	// ES 速率（基本流速率）
 	// 01111111 11111111 11111110
-	if (tp->ES_rate_flag == 0x1) {
-		tp->ES_rate = (pl[opt_field_idx] & 0x7f) << 15 |
+	if (tp.ES_rate_flag == 0x1) {
+		tp.ES_rate = (pl[opt_field_idx] & 0x7f) << 15 |
 			pl[opt_field_idx + 1] << 7 |
 			(pl[opt_field_idx + 2] >> 1 & 0x7f);
 
@@ -914,74 +932,71 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 	}
 
 	// 相关视频流的特技方式
-	if (tp->DSM_trick_mode_flag == 0x1) {
+	if (tp.DSM_trick_mode_flag == 0x1) {
 
 		// '000' 快进
 		// '001' 慢动作
 		// '010' 冻结帧
 		// '011' 快速反向
 		// '100' 慢反向
-		tp->trick_mode_control = pl[opt_field_idx] >> 5 & 0x7;
-		if (tp->trick_mode_control == 0x0) {
-			tp->field_id = pl[opt_field_idx] >> 3 & 0x3;
-			tp->intra_slice_refresh = pl[opt_field_idx] >> 2 & 0x1;
-			tp->frequency_truncation = pl[opt_field_idx] & 0x3;
+		tp.trick_mode_control = pl[opt_field_idx] >> 5 & 0x7;
+		if (tp.trick_mode_control == 0x0) {
+			tp.field_id = pl[opt_field_idx] >> 3 & 0x3;
+			tp.intra_slice_refresh = pl[opt_field_idx] >> 2 & 0x1;
+			tp.frequency_truncation = pl[opt_field_idx] & 0x3;
 		}
-		else if (tp->trick_mode_control == 0x1) {
-			tp->rep_cntrl = pl[opt_field_idx] & 0x1f;
+		else if (tp.trick_mode_control == 0x1) {
+			tp.rep_cntrl = pl[opt_field_idx] & 0x1f;
 		}
-		else if (tp->trick_mode_control == 0x2) {
-			tp->field_id = pl[opt_field_idx] >> 3 & 0x3;
+		else if (tp.trick_mode_control == 0x2) {
+			tp.field_id = pl[opt_field_idx] >> 3 & 0x3;
 		}
-		else if (tp->trick_mode_control == 0x3) {
-			tp->field_id = pl[opt_field_idx] >> 3 & 0x3;
-			tp->intra_slice_refresh = pl[opt_field_idx] >> 2 & 0x1;
-			tp->frequency_truncation = pl[opt_field_idx] & 0x3;
+		else if (tp.trick_mode_control == 0x3) {
+			tp.field_id = pl[opt_field_idx] >> 3 & 0x3;
+			tp.intra_slice_refresh = pl[opt_field_idx] >> 2 & 0x1;
+			tp.frequency_truncation = pl[opt_field_idx] & 0x3;
 		}
-		else if (tp->trick_mode_control == 0x4) {
-			tp->rep_cntrl = pl[opt_field_idx] & 0x1f;
+		else if (tp.trick_mode_control == 0x4) {
+			tp.rep_cntrl = pl[opt_field_idx] & 0x1f;
 		}
 		opt_field_idx += 1;
 	}
 
-	if (tp->additional_copy_info_flag == 0x1) {
-		tp->additional_copy_info = pl[opt_field_idx] & 0x7f;
+	if (tp.additional_copy_info_flag == 0x1) {
+		tp.additional_copy_info = pl[opt_field_idx] & 0x7f;
 		opt_field_idx += 1;
 	}
 
-	if (tp->PES_CRC_flag == 0x1) {
-		tp->previous_PES_packet_CRC = pl[opt_field_idx] << 8 |
+	if (tp.PES_CRC_flag == 0x1) {
+		tp.previous_PES_packet_CRC = pl[opt_field_idx] << 8 |
 			pl[opt_field_idx];
 	}
 
-	if (tp->PES_extension_flag == 0x1) {
+	if (tp.PES_extension_flag == 0x1) {
 		return -1;
 	}
 
 	// 截取payload
-	int dataBegin = 9 + tp->PES_header_data_length;
+	int dataBegin = 9 + tp.PES_header_data_length;
 	int es_data_len = pPesByteList->used_len - dataBegin;
 
 	unsigned char *pEsData = malloc(sizeof(unsigned char) * es_data_len);
 	if (pEsData == NULL)
 	{
 		printf("create *pEsData failed!\n");
-		_free_ts_pes_pkt(tp);
 		return -1;
 	}
 
 	memcpy(pEsData, pPesByteList->pBytes + dataBegin, es_data_len);
 
-	FRAME_DATA *fdata = frame_data_create(tp->av_type, tp->stream_type, tp->DTS, tp->PTS, pEsData, es_data_len);
+	FRAME_DATA *fdata = frame_data_create(tp.av_type, tp.stream_type, tp.DTS, tp.PTS, pEsData, es_data_len);
 
 	int add_res = priority_queue_push(d->pkt_queue, fdata, fdata->dtime);
 	if (add_res == -1)
 	{
 		printf("push pes failed!\n");
-		_free_ts_pes_pkt(tp);
 		return -1;
 	}
-	_free_ts_pes_pkt(tp);
-	//printf("push pes: es data len:  %d\n", es_data_len);
+ 	//printf("push pes: es data len:  %d\n", es_data_len);
 	return 0;
 }

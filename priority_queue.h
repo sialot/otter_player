@@ -20,15 +20,14 @@ typedef enum FRAME_AV_TYPE
 typedef struct FRAME_DATA
 {
 	int len; // 数据长度
+	unsigned int cur_time : 32;
+	FRAME_AV_TYPE av_type; // VIDEO， AUDIO
+	int channels;
 	unsigned char * data ; // 数据
 	unsigned int time_stamp :32; // 排序用时间戳
-	unsigned int dtime :32;
-	unsigned int ptime :32;
 	unsigned long long dts : 33;
 	unsigned long long pts : 33;
 	unsigned stream_type; // 流类型
-	int channels;
-	FRAME_AV_TYPE av_type; // VIDEO， AUDIO
 	struct FRAME_DATA *next;
 	struct FRAME_DATA *prev;
 } FRAME_DATA;

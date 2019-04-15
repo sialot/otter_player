@@ -14,8 +14,6 @@ FRAME_DATA * frame_data_create(FRAME_AV_TYPE av_type, unsigned stream_type, unsi
 	f->time_stamp = 0;
 	f->dts = dts;
 	f->pts = pts;
-	f->dtime = f->dts / 90;
-	f->ptime = f->pts / 90;
 	f->data = data;
 	f->len = len;
 	f->next = NULL;

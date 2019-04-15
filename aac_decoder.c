@@ -132,7 +132,7 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 
 				FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x01, pPesPkt->dts, pPesPkt->pts, out_data, out_len);
 				out_frame->channels = d->context->channels;
-				priority_queue_push(queue, out_frame, out_frame->ptime);
+				priority_queue_push(queue, out_frame, out_frame->pts / 90);
 				av_frame_unref(d->decoded_frame);
 			}
 		}

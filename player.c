@@ -59,11 +59,11 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 		destroy_player(p);
 		return NULL;
 	}
-	printf("player is ready !\n");
+	printf("player is ready, frame_merge test!\n");
 	return p;
 }
 
-// 按时间播放
+// 播放
 EM_PORT_API(int) play(OTTER_PLAYER *p)
 {
 	if (p == NULL) {
@@ -109,7 +109,7 @@ EM_PORT_API(void) js_push_data(OTTER_PLAYER * p, unsigned char * bytes, int len)
 }
 
 // js获取帧数据
-EM_PORT_API(JS_FRAME *) js_poll_frame(OTTER_PLAYER *p)
+EM_PORT_API(FRAME_DATA *) js_poll_frame(OTTER_PLAYER *p)
 {
 	if (p->status == INIT_FINISH)
 	{
@@ -123,24 +123,13 @@ EM_PORT_API(JS_FRAME *) js_poll_frame(OTTER_PLAYER *p)
 		return NULL;
 	}
 
-	while (f->av_type == VIDEO && f->ptime < p->current_play_time)
-	{
-		f = priority_queue_poll_without_wait(p->decoder_master->js_frame_queue);
-	}
+	f->cur_time = (f->pts / 90) - p->media_start_timestamp;
 
-	JS_FRAME *jframe = malloc(sizeof(JS_FRAME));
-	jframe->len = f->len;
-	jframe->cur_time = f->ptime  - p->media_start_timestamp;
-	jframe->channels = 0;
-	jframe->av_type = f->av_type;
 	if (f->av_type == AUDIO)
 	{
-		jframe->channels = f->channels;
-		p->current_play_time = f->ptime;
+		p->current_play_time = f->pts / 90;
 	}
-	jframe->data = f->data;
-	free(f);
-	return jframe;
+	return f;
 }
 
 int _create_demuxer(OTTER_PLAYER * p)
@@ -267,7 +256,7 @@ void * _audio_decode_start(void * args)
 		if (!init_start_timestamp)
 		{
 			init_start_timestamp = 1;
-			p->media_start_timestamp = esFrame->ptime;
+			p->media_start_timestamp = esFrame->pts / 90;
 		}
 		decode_frame(p->decoder_master, esFrame);
 		frame_data_destory(esFrame);
@@ -276,7 +265,7 @@ void * _audio_decode_start(void * args)
 	return NULL;
 }
 
-// 线程函数，音频解码
+// 线程函数，视频解码
 void * _video_decode_start(void * args)
 {
 	printf("thread start [_video_decode_start]!\n");

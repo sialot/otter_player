@@ -15,7 +15,6 @@ typedef struct DECODER
 	int display_height; // œ‘ æ∏ﬂ
 	AVCodec *codec;
 	AVCodecContext *context;
-	AVCodecParserContext *parser;
 	AVPacket *pkt;
 	AVFrame *decoded_frame;
 	struct SwsContext *swx_ctx;

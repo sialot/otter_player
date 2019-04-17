@@ -10,7 +10,6 @@ DECODER * h264_decoder_create(int display_width, int display_height, FRAME_DATA_
 	h264_decoder->decode_frame = h264_decode_func;
 	h264_decoder->codec = NULL;
 	h264_decoder->context = NULL;
-	h264_decoder->parser = NULL;
 	h264_decoder->decoded_frame = NULL;
 	h264_decoder->swx_ctx = NULL;
 	h264_decoder->display_height = display_height;
@@ -23,15 +22,6 @@ DECODER * h264_decoder_create(int display_width, int display_height, FRAME_DATA_
 	{
 		h264_decode_destory(h264_decoder);
 		printf("Codec not found! \n");
-		return NULL;
-	}
-
-	// »ñÈ¡parser
-	h264_decoder->parser = av_parser_init(h264_decoder->codec->id);
-	if (!h264_decoder->parser)
-	{
-		h264_decode_destory(h264_decoder);
-		printf("Parser not found! \n");
 		return NULL;
 	}
 
@@ -80,8 +70,6 @@ DECODER * h264_decoder_create(int display_width, int display_height, FRAME_DATA_
 int h264_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue)
 {
 	DECODER *d = (DECODER *)pDecoder;
-
-	//printf("IN>> pts:%d, dts:%d \n", pPesPkt->ptime, pPesPkt->dtime);
 
 	d->pkt->pts = pPesPkt->pts;
 	d->pkt->dts = pPesPkt->dts;
@@ -154,10 +142,6 @@ void h264_decode_destory(DECODER *d)
 	if (d->context != NULL)
 	{
 		avcodec_free_context(&d->context);
-	}
-	if (d->parser != NULL)
-	{
-		av_parser_close(d->parser);
 	}
 	if (d->decoded_frame != NULL)
 	{

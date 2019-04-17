@@ -11,7 +11,6 @@ DECODER * aac_decoder_create(FRAME_DATA_POOL *frame_pool)
 	aac_decoder->decode_frame = aac_decode_func;
 	aac_decoder->codec = NULL;
 	aac_decoder->context = NULL;
-	aac_decoder->parser = NULL;
 	aac_decoder->decoded_frame = NULL;
 	aac_decoder->swx_ctx = NULL;
 	aac_decoder->display_height = 0;
@@ -24,15 +23,6 @@ DECODER * aac_decoder_create(FRAME_DATA_POOL *frame_pool)
 	{
 		aac_decode_destory(aac_decoder);
 		printf("Codec not found! \n");
-		return NULL;
-	}
-
-	// 获取parser
-	aac_decoder->parser = av_parser_init(aac_decoder->codec->id);
-	if (!aac_decoder->parser)
-	{
-		aac_decode_destory(aac_decoder);
-		printf("Parser not found! \n");
 		return NULL;
 	}
 
@@ -75,70 +65,52 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 {
 	DECODER *d = (DECODER *)pDecoder;
 
-	// 输入数据，输入长度
-	uint8_t *data = (uint8_t *)pPesPkt->data;
-	size_t data_size = (size_t)pPesPkt->len;
+	d->pkt->pts = pPesPkt->pts;
+	d->pkt->dts = pPesPkt->dts;
+	d->pkt->data = pPesPkt->data;
+	d->pkt->size = pPesPkt->len;
+
 	size_t sample_data_size = 0;
+	int ret;
+	ret = avcodec_send_packet(d->context, d->pkt);
+	if (ret < 0) {
+		printf("ACC_DECODE:Error submitting the packet to the decoder\n");
+		return -1;
+	}
 
-	while (data_size > 0) {
-
-		// 解析数据获得一个Packet， 从输入的数据流中分离出一帧一帧的压缩编码数据
-		int ret = av_parser_parse2(d->parser, d->context, &d->pkt->data, &d->pkt->size,
-			data, data_size,
-			pPesPkt->pts, pPesPkt->dts, 0);
-
-		if (ret < 0) {
-			printf("Error while parsing\n");
+	while (ret >= 0) {
+		ret = avcodec_receive_frame(d->context, d->decoded_frame);
+		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+			continue;
+		else if (ret < 0) {
+			printf("Error during decoding\n");
 			return -1;
 		}
-		data += ret;
-		data_size -= ret;
+		sample_data_size = av_get_bytes_per_sample(d->context->sample_fmt);
+		if (sample_data_size < 0) {
+			/* This should not occur, checking just for paranoia */
+			printf("Failed to calculate data size\n");
+			return -1;
+		}
 
-		if (d->pkt->size)
+		// 准备入参
+		FRAME_DATA *out_frame = frame_data_pool_borrow(d->frame_pool);
+		if (out_frame == NULL) {
+			printf("audio frame pool is empty.decode failed! \n");
+			return -1;
+		}
+
+		for (int i = 0; i < d->decoded_frame->nb_samples; i++)
 		{
-			int ret;
-			ret = avcodec_send_packet(d->context, d->pkt);
-			if (ret < 0) {
-				printf("ACC_DECODE:Error submitting the packet to the decoder\n");
-				return -1;
-			}
-
-			/* read all the output frames (in general there may be any number of them */
-			while (ret >= 0) {
-				ret = avcodec_receive_frame(d->context, d->decoded_frame);
-				if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-					continue;
-				else if (ret < 0) {
-					printf("Error during decoding\n");
-					return -1;
-				}
-				sample_data_size = av_get_bytes_per_sample(d->context->sample_fmt);
-				if (sample_data_size < 0) {
-					/* This should not occur, checking just for paranoia */
-					printf("Failed to calculate data size\n");
-					return -1;
-				}
-
-				// 准备入参
-				FRAME_DATA *out_frame = frame_data_pool_borrow(d->frame_pool);
-				if (out_frame == NULL) {
-					printf("audio frame pool is empty.decode failed! \n");
-					return -1;
-				}
-
-				for (int i = 0; i < d->decoded_frame->nb_samples; i++)
-				{
-					for (int ch = 0; ch < d->context->channels; ch++)
-					{
-						frame_data_set(out_frame, pPesPkt->av_type, 0x01, pPesPkt->dts, pPesPkt->pts, d->decoded_frame->data[ch] + sample_data_size * i, sample_data_size);
-					}
-				}
-
-				out_frame->channels = d->context->channels;
-				priority_queue_push(queue, out_frame, out_frame->pts / 90);
-				av_frame_unref(d->decoded_frame);
+			for (int ch = 0; ch < d->context->channels; ch++)
+			{
+				frame_data_set(out_frame, pPesPkt->av_type, 0x01, pPesPkt->dts, pPesPkt->pts, d->decoded_frame->data[ch] + sample_data_size * i, sample_data_size);
 			}
 		}
+
+		out_frame->channels = d->context->channels;
+		priority_queue_push(queue, out_frame, out_frame->pts / 90);
+		av_frame_unref(d->decoded_frame);
 	}
 	return 0;
 }
@@ -152,10 +124,6 @@ void aac_decode_destory(DECODER * d)
 	if (d->context != NULL)
 	{
 		avcodec_free_context(&d->context);
-	}
-	if (d->parser != NULL)
-	{
-		av_parser_close(d->parser);
 	}
 	if (d->decoded_frame != NULL)
 	{

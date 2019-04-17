@@ -5,7 +5,7 @@
 #include <libavutil/parseutils.h>
 #include <libswscale/swscale.h>
 #include <libavcodec/avcodec.h>
-#include "priority_queue.h"
+#include "frame_data.h"
 
 // 解码器定义
 typedef struct DECODER
@@ -19,6 +19,7 @@ typedef struct DECODER
 	AVPacket *pkt;
 	AVFrame *decoded_frame;
 	struct SwsContext *swx_ctx;
+	FRAME_DATA_POOL *frame_pool;
 } DECODER;
 
 #include "aac_decoder.h"
@@ -30,12 +31,14 @@ typedef struct DECODER_MASTER
 	PRIORITY_QUEUE *js_frame_queue;
 	DECODER *aac_decoder;
 	DECODER *h264_decoder;
+	FRAME_DATA_POOL *audio_pool;
+	FRAME_DATA_POOL *video_pool;
 	int display_width; // 显示宽
 	int display_height; // 显示高
 } DECODER_MASTER;
 
 // 创建对象
-DECODER_MASTER * decoder_master_create(int display_width, int display_height);
+DECODER_MASTER * decoder_master_create(int display_width, int display_height, FRAME_DATA_POOL *audio_pool, FRAME_DATA_POOL *video_pool);
 
 // 解码
 int decode_frame(DECODER_MASTER *d, FRAME_DATA * f);

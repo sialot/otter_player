@@ -1,6 +1,5 @@
 
 #include "byte_list.h"
-const int ENHANCE_SIZE = 4 * 1024;
 
 BYTE_LIST* byte_list_create(int size)
 {
@@ -29,7 +28,7 @@ int byte_list_add_list(BYTE_LIST *bl, unsigned char *bytes, int size)
 {
 	if (bl->size < (size + bl->used_len))
 	{
-		int new_size = bl->size + ENHANCE_SIZE + size;
+		int new_size = bl->size + size;
 		unsigned char *pByteNew = (unsigned char *)realloc(bl->pBytes, new_size);
 		if (pByteNew == NULL)
 		{

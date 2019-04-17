@@ -1,6 +1,6 @@
 #include "h264_decoder.h"
 
-DECODER * h264_decoder_create(int display_width, int display_height)
+DECODER * h264_decoder_create(int display_width, int display_height, FRAME_DATA_POOL *frame_pool)
 {
 	DECODER *h264_decoder = malloc(sizeof(DECODER));
 	if (h264_decoder == NULL)
@@ -15,6 +15,7 @@ DECODER * h264_decoder_create(int display_width, int display_height)
 	h264_decoder->swx_ctx = NULL;
 	h264_decoder->display_height = display_height;
 	h264_decoder->display_width = display_width;
+	h264_decoder->frame_pool = frame_pool;
 
 	/* find the h264 audio decoder */
 	h264_decoder->codec = avcodec_find_decoder(AV_CODEC_ID_H264);
@@ -90,7 +91,7 @@ int h264_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queu
 	int ret;
 	ret = avcodec_send_packet(d->context, d->pkt);
 	if (ret < 0) {
-		printf("Error submitting the packet to the decoder\n");
+		printf("H264_DECODE:Error submitting the packet to the decoder\n");
 		return -1;
 	}
 
@@ -125,12 +126,18 @@ int h264_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queu
 		sws_scale(d->swx_ctx, (const uint8_t *const *)d->decoded_frame->data, d->decoded_frame->linesize, 0,
 			d->decoded_frame->height, dst_data, dst_linesize);
 
-		unsigned char * out_data = malloc(sizeof(unsigned char) * ret);
-		memcpy(out_data, dst_data[0], ret);
-		FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x02, (unsigned long long)d->decoded_frame->pkt_dts, (unsigned long long)d->decoded_frame->pts, out_data, ret);
-				
-		//printf("OUT>> pts:%d, dts:%d \n", out_frame->ptime, out_frame->dtime);
+		// 借帧
+		FRAME_DATA *out_frame = frame_data_pool_borrow(d->frame_pool);
+		if (out_frame == NULL) {
+			printf("video frame pool is empty.decode failed! \n");
+			return -1;
+		}
+
+		// 设置数据
+		frame_data_set(out_frame, pPesPkt->av_type, 0x02, (unsigned long long)d->decoded_frame->pkt_dts, (unsigned long long)d->decoded_frame->pts, dst_data[0], ret);
 		priority_queue_push(queue, out_frame, out_frame->pts / 90);
+
+		// 清理临时数据
 		av_frame_unref(d->decoded_frame);
 		av_freep(&dst_data[0]);
 	}

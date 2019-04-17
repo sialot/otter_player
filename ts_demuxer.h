@@ -4,7 +4,7 @@
 #include <string.h>
 #include "byte_list.h"
 #include "hash_map.h"
-#include "priority_queue.h"
+#include "frame_data.h"
 
 // ts 头
 typedef struct TS_HEADER
@@ -127,13 +127,15 @@ typedef struct TS_DEMUXER
 	TS_PMT *global_pmt;                   // 全局映射表
 	HASH_MAP *global_buffer_map;          // 缓存map
 	int cur_program_num;                  // 当前节目号
-	PRIORITY_QUEUE *pkt_queue;
-	TS_PAT_PROGRAM *temp_programs;
-	TS_PMT_STREAM * temp_streams;
+	FRAME_DATA_POOL *audio_pool;                // 帧池
+	FRAME_DATA_POOL *video_pool;                // 帧池
+	PRIORITY_QUEUE *pkt_queue;            // pes包队列
+	TS_PAT_PROGRAM *temp_programs;        // 临时节目信息存储
+	TS_PMT_STREAM * temp_streams;         // 临时流信息存储
 } TS_DEMUXER;
 
 // 解封装模块创建
-TS_DEMUXER *ts_demuxer_create();
+TS_DEMUXER *ts_demuxer_create(FRAME_DATA_POOL *audio_pool, FRAME_DATA_POOL *video_pool);
 
 // 解封装
 int demux_ts_pkt(TS_DEMUXER *d, unsigned char *pTsBuf);

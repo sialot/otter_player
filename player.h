@@ -14,6 +14,7 @@
 #include "block_queue.h"
 #include "ts_demuxer.h"
 #include "decoder_master.h"
+#include "frame_data.h"
 
 // 播放状态
 typedef enum PLAY_STATUS
@@ -31,6 +32,8 @@ typedef struct OTTER_PLAYER
 	PLAY_STATUS status;                 // 状态
 	int display_width;                  // 显示宽
 	int display_height;                 // 显示高
+	FRAME_DATA_POOL *audio_pool;               // 帧数据池
+	FRAME_DATA_POOL *video_pool;               // 帧数据池
 	pthread_t ts_demux_thread;          // ts解封装线程
 	pthread_t audio_decode_thread;      // pes解码线程
 	pthread_t video_decode_thread;      // pes解码线程
@@ -60,6 +63,10 @@ void js_push_data(OTTER_PLAYER * p, unsigned char * bytes, int len);
 
 // js拉取帧
 FRAME_DATA* js_poll_frame(OTTER_PLAYER *p);
+
+// 归还帧
+void js_return_audio_frame(OTTER_PLAYER *p, FRAME_DATA *f);
+void js_return_video_frame(OTTER_PLAYER *p, FRAME_DATA *f);
 
 // 创建、销毁解封装
 static int _create_demuxer(OTTER_PLAYER *p);

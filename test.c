@@ -154,8 +154,12 @@ int fileRead(char *filePath, char *outPath) {
 	}
 
 	size_t rs = 0;
-	TS_DEMUXER *d = ts_demuxer_create(512);
-	DECODER_MASTER *m = decoder_master_create(240, 160);
+
+	FRAME_DATA_POOL *audio_pool = frame_data_pool_create(1024);
+	FRAME_DATA_POOL *video_pool = frame_data_pool_create(1024);
+
+	TS_DEMUXER *d = ts_demuxer_create(audio_pool, video_pool);
+	DECODER_MASTER *m = decoder_master_create(240, 160, audio_pool, video_pool);
 	unsigned char *pkt = malloc(sizeof(unsigned char) * 188);
 
 	int ts_num = 0;
@@ -165,54 +169,65 @@ int fileRead(char *filePath, char *outPath) {
 		rs = fread(pkt, 188, 1, tsFile);
 		if (rs > 0)
 		{
+
 			demux_ts_pkt(d, pkt);
 
 			while (!is_pes_queue_empty(d))
 			{
 				FRAME_DATA *pes = poll_pes_pkt(d);
 
-					//printf("POLL PES av_type0 << dts: %lld\n", pes->dts);
-					//fwrite(pes->data, 1, pes->len, outfile);
-					decode_frame(m, pes);
+				decode_frame(m, pes);
 
 			
-					while (!is_priority_queue_empty(m->js_frame_queue)) {
+				while (!is_priority_queue_empty(m->js_frame_queue)) {
 
-						FRAME_DATA *f = priority_queue_poll(m->js_frame_queue);
+					FRAME_DATA *f = priority_queue_poll(m->js_frame_queue);
 
-						if (f->av_type == 0)
-						{
-							//printf("<<<<< PCM:%lld \n", f->ptime);
-							//fwrite(f->data, 1, f->len, outfile);
-						}
-						else
-						{
-							char outPath1[1024];
+					if (f->av_type == 0)
+					{
 
-							sprintf(outPath1, "D:\\out\\out_pic_%d.bmp", f->ptime);
+						//printf("<<<<< PCM:%d \n", f->pts / 90);
+						//fwrite(f->data, 1, f->len, outfile);
 
-							FILE *outfile1;
-							//printf("%s\n", outPath1);
-							MySaveBmp(outPath1, f->data, 240, 160);
-
-							//fwrite(f->data, 1, f->len, outfile1);
-							//printf("<<<<< RGB:%d \n", f->ptime);
-
-						}
-						x++;
-						free(f->data);
-						free(f);
+						frame_data_pool_return(m->audio_pool, f);
 					}
+					else
+					{
+						char outPath1[1024];
 
-				frame_data_destory(pes);
+						sprintf(outPath1, "D:\\out\\out_pic_%d.bmp", f->pts / 90);
+
+						FILE *outfile1;
+						//printf("%s\n", outPath1);
+					//	MySaveBmp(outPath1, f->data, 240, 160);
+
+						//fwrite(f->data, 1, f->len, outfile1);
+						//printf("<<<<< RGB:%d \n", f->pts /90);
+						frame_data_pool_return(m->video_pool, f);
+					}
+					x++;
+
+				}
+
+				if (pes->av_type == AUDIO)
+				{
+					frame_data_pool_return(d->audio_pool, pes);
+				}
+				else
+				{
+					frame_data_pool_return(d->video_pool, pes);
+				}
+
+			
 			}
-
 		}
 
-	} while (rs != 0 && x < 5000);
+	} while (rs != 0);
 
 	decoder_master_destroy(m);
 	ts_demuxer_destroy(d);
+	frame_data_pool_destroy(audio_pool);
+	frame_data_pool_destroy(video_pool);
 	free(pkt);
 
 	if (fclose(tsFile))

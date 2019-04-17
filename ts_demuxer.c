@@ -1,10 +1,10 @@
 ﻿#include "ts_demuxer.h"
 
-// 每次缓存的最大pes包数 50 * 80000 约 4mb
-const int BUFFER_COUNT = 1000;
+// 每次缓存的最大pes包数
+const int BUFFER_COUNT = 200;
 
 // 解封装模块创建
-TS_DEMUXER * ts_demuxer_create()
+TS_DEMUXER * ts_demuxer_create(FRAME_DATA_POOL *audio_pool, FRAME_DATA_POOL *video_pool)
 {
 	TS_DEMUXER *d = (TS_DEMUXER *)malloc(sizeof(TS_DEMUXER));
 	if (d == NULL)
@@ -17,6 +17,8 @@ TS_DEMUXER * ts_demuxer_create()
 	d->global_buffer_map = NULL;
 	d->pkt_queue = NULL;
 	d->cur_program_num = -1;
+	d->audio_pool = audio_pool;
+	d->video_pool = video_pool;
 	d->temp_programs = NULL;
 	d->temp_streams = NULL;
 
@@ -112,16 +114,24 @@ void ts_demuxer_destroy(TS_DEMUXER * d)
 	}
 
 	// PAT
-	_free_ts_pat(d->global_pat);
+	if (d->global_pat != NULL) {
+		_free_ts_pat(d->global_pat);
+	}
 
 	// PMT
-	_free_ts_pmt(d->global_pmt);
+	if (d->global_pmt != NULL) {
+		_free_ts_pmt(d->global_pmt);
+	}
 
 	// MAP
-	hash_map_destroy(d->global_buffer_map);
+	if (d->global_buffer_map != NULL) {
+		hash_map_destroy(d->global_buffer_map);
+	}
 
 	// queue
-	priority_queue_destroy(d->pkt_queue);
+	if (d->pkt_queue != NULL) {
+		priority_queue_destroy(d->pkt_queue);
+	}
 
 	// temp
 	free(d->temp_programs);
@@ -606,6 +616,7 @@ int _read_ts_PMT(TS_DEMUXER *d, unsigned char * pTsBuf, TS_HEADER * pHeader)
 			{
 				return -1;
 			}
+			d->temp_streams = temp_streams;
 		}
 
 		tempPmt.pStreams = d->temp_streams;
@@ -980,16 +991,23 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 	int dataBegin = 9 + tp.PES_header_data_length;
 	int es_data_len = pPesByteList->used_len - dataBegin;
 
-	unsigned char *pEsData = malloc(sizeof(unsigned char) * es_data_len);
-	if (pEsData == NULL)
+
+	FRAME_DATA *fdata = NULL;
+
+	if (tp.av_type == AUDIO)
 	{
-		printf("create *pEsData failed!\n");
-		return -1;
+		fdata = frame_data_pool_borrow(d->audio_pool);
+	}
+	else
+	{
+		fdata = frame_data_pool_borrow(d->video_pool);
 	}
 
-	memcpy(pEsData, pPesByteList->pBytes + dataBegin, es_data_len);
-
-	FRAME_DATA *fdata = frame_data_create(tp.av_type, tp.stream_type, tp.DTS, tp.PTS, pEsData, es_data_len);
+	if (fdata == NULL)
+	{
+		return -1;
+	}
+	frame_data_set(fdata, tp.av_type, tp.stream_type, tp.DTS, tp.PTS, pPesByteList->pBytes + dataBegin, es_data_len);
 
 	int add_res = priority_queue_push(d->pkt_queue, fdata, (fdata->dts / 90));
 	if (add_res == -1)
@@ -997,6 +1015,5 @@ int _read_pes(TS_DEMUXER *d, BYTE_LIST * pPesByteList, TS_PMT_STREAM s)
 		printf("push pes failed!\n");
 		return -1;
 	}
- 	//printf("push pes: es data len:  %d\n", es_data_len);
 	return 0;
 }

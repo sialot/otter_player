@@ -7,7 +7,7 @@ const int MAX_BUFFER_FRAME_COUNT = 150;
 const int MAX_PREBUFFER_FRAME_COUNT = 100;
 
 // 创建对象
-DECODER_MASTER * decoder_master_create(int display_width, int display_height)
+DECODER_MASTER * decoder_master_create(int display_width, int display_height, FRAME_DATA_POOL *audio_pool, FRAME_DATA_POOL *video_pool)
 {
 	DECODER_MASTER *d = (DECODER_MASTER *)malloc(sizeof(DECODER_MASTER));
 	if (d == NULL)
@@ -27,6 +27,8 @@ DECODER_MASTER * decoder_master_create(int display_width, int display_height)
 	d->h264_decoder = NULL;
 	d->display_height = display_height;
 	d->display_width = display_width;
+	d->audio_pool = audio_pool;
+	d->video_pool = video_pool;
 	return d;
 }
 
@@ -49,6 +51,7 @@ int decode_frame(DECODER_MASTER * d, FRAME_DATA * f)
 		printf("decode failed! \n");
 		return -1;
 	}
+
 	return 0;
 }
 
@@ -88,13 +91,13 @@ DECODER * _get_decoder(DECODER_MASTER * d, unsigned stream_type)
 	case 0x1b: 
 		if (d->h264_decoder == NULL)
 		{
-			d->h264_decoder = h264_decoder_create(d->display_width, d->display_height);
+			d->h264_decoder = h264_decoder_create(d->display_width, d->display_height, d->video_pool);
 		}
 		return d->h264_decoder;
 	case 0x0f:
 		if (d->aac_decoder == NULL)
 		{
-			d->aac_decoder = aac_decoder_create();
+			d->aac_decoder = aac_decoder_create(d->audio_pool);
 		}
 		return d->aac_decoder;
 	}

@@ -33,9 +33,27 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 	p->status = INIT_FINISH;
 	p->display_height = display_height;
 	p->display_width = display_width;
+	p->audio_pool = NULL;
+	p->video_pool = NULL;
 	p->demuxer = NULL;
 	p->ts_pkt_queue = NULL;
 	p->ts_pkt_buffer = NULL;
+
+	// 创建音频帧池
+	FRAME_DATA_POOL *audio_pool = frame_data_pool_create(256);
+	if (audio_pool == NULL)
+	{
+		return NULL;
+	}
+	p->audio_pool = audio_pool;
+
+	// 创建视频帧池
+	FRAME_DATA_POOL *video_pool = frame_data_pool_create(200);
+	if (video_pool == NULL)
+	{
+		return NULL;
+	}
+	p->video_pool = video_pool;
 
 	BLOCK_QUEUE *ts_queue = block_queue_create(1);
 	if (ts_queue == NULL)
@@ -59,7 +77,7 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 		destroy_player(p);
 		return NULL;
 	}
-	printf("player is ready, frame_merge test!\n");
+	printf("player is ready!\n");
 	return p;
 }
 
@@ -94,6 +112,7 @@ EM_PORT_API(int) play(OTTER_PLAYER *p)
 
 	return 0;
 }
+
 // 队列是否为空
 EM_PORT_API(int) js_can_load_file(OTTER_PLAYER *p)
 {
@@ -128,8 +147,22 @@ EM_PORT_API(FRAME_DATA *) js_poll_frame(OTTER_PLAYER *p)
 	if (f->av_type == AUDIO)
 	{
 		p->current_play_time = f->pts / 90;
+
 	}
+
 	return f;
+}
+
+// 归还帧
+EM_PORT_API(void) js_return_audio_frame(OTTER_PLAYER *p, FRAME_DATA *f)
+{
+	frame_data_pool_return(p->audio_pool, f);
+	//printf("POOL: %d/%d \n", p->pool->queue->size - p->pool->queue->used, p->pool->queue->size);
+}
+EM_PORT_API(void) js_return_video_frame(OTTER_PLAYER *p, FRAME_DATA *f)
+{
+	frame_data_pool_return(p->video_pool, f);
+	//printf("POOL: %d/%d \n", p->pool->queue->size - p->pool->queue->used, p->pool->queue->size);
 }
 
 int _create_demuxer(OTTER_PLAYER * p)
@@ -139,7 +172,7 @@ int _create_demuxer(OTTER_PLAYER * p)
 		return -1;
 	}
 
-	TS_DEMUXER *demuxer = ts_demuxer_create();
+	TS_DEMUXER *demuxer = ts_demuxer_create(p->audio_pool, p->video_pool);
 	if (demuxer == NULL)
 	{
 		printf("can't create demuxer!\n");
@@ -172,7 +205,7 @@ int _create_decoder_master(OTTER_PLAYER * p)
 		return -1;
 	}
 
-	DECODER_MASTER *decoder_master = decoder_master_create(p->display_width, p->display_height);
+	DECODER_MASTER *decoder_master = decoder_master_create(p->display_width, p->display_height, p->audio_pool, p->video_pool);
 	if (decoder_master == NULL)
 	{
 		printf("can't create decoder_master!\n");
@@ -248,18 +281,18 @@ void * _audio_decode_start(void * args)
 		printf("decoder_master is null!\n");
 		return NULL;
 	}
-	int init_start_timestamp = 0;
+	int init_start_timestamp = 1;
 	while (p->status == WORKING)
 	{
 		FRAME_DATA *esFrame = poll_pes_pkt_by_type(p->demuxer, AUDIO);
 
-		if (!init_start_timestamp)
+		if (init_start_timestamp)
 		{
-			init_start_timestamp = 1;
+			init_start_timestamp = 0;
 			p->media_start_timestamp = esFrame->pts / 90;
 		}
 		decode_frame(p->decoder_master, esFrame);
-		frame_data_destory(esFrame);
+		frame_data_pool_return(p->audio_pool, esFrame);
 	}
 	printf("thread exit [%s]!\n", __FUNCTION__);
 	return NULL;
@@ -286,7 +319,7 @@ void * _video_decode_start(void * args)
 	{
 		FRAME_DATA *esFrame = poll_pes_pkt_by_type(p->demuxer, VIDEO);
 		decode_frame(p->decoder_master, esFrame);
-		frame_data_destory(esFrame);
+		frame_data_pool_return(p->video_pool, esFrame);
 	}
 	printf("thread exit [%s]!\n", __FUNCTION__);
 	return NULL;
@@ -313,6 +346,14 @@ EM_PORT_API(int) destroy_player(OTTER_PLAYER *p)
 	if (p->ts_pkt_queue != NULL)
 	{
 		block_queue_destroy(p->ts_pkt_queue);
+	}
+
+	// 销毁帧池
+	if (p->audio_pool != NULL) {
+		frame_data_pool_destroy(p->audio_pool);
+	}
+	if (p->video_pool != NULL) {
+		frame_data_pool_destroy(p->video_pool);
 	}
 
 	free(p);

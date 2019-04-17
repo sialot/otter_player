@@ -1,7 +1,7 @@
 #include "aac_decoder.h"
 
 // 创建解码器
-DECODER * aac_decoder_create()
+DECODER * aac_decoder_create(FRAME_DATA_POOL *frame_pool)
 {
 	DECODER *aac_decoder = malloc(sizeof(DECODER));
 	if (aac_decoder == NULL)
@@ -16,6 +16,7 @@ DECODER * aac_decoder_create()
 	aac_decoder->swx_ctx = NULL;
 	aac_decoder->display_height = 0;
 	aac_decoder->display_width = 0;
+	aac_decoder->frame_pool = frame_pool;
 
 	/* find the AAC audio decoder */
 	aac_decoder->codec = avcodec_find_decoder(AV_CODEC_ID_AAC);
@@ -98,7 +99,7 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 			int ret;
 			ret = avcodec_send_packet(d->context, d->pkt);
 			if (ret < 0) {
-				printf("Error submitting the packet to the decoder\n");
+				printf("ACC_DECODE:Error submitting the packet to the decoder\n");
 				return -1;
 			}
 
@@ -119,18 +120,20 @@ int aac_decode_func(void * pDecoder, FRAME_DATA * pPesPkt, PRIORITY_QUEUE *queue
 				}
 
 				// 准备入参
-				int out_len = d->decoded_frame->nb_samples * d->context->channels * sample_data_size;
-				unsigned char * out_data = malloc(sizeof(unsigned char) * out_len);
+				FRAME_DATA *out_frame = frame_data_pool_borrow(d->frame_pool);
+				if (out_frame == NULL) {
+					printf("audio frame pool is empty.decode failed! \n");
+					return -1;
+				}
 
 				for (int i = 0; i < d->decoded_frame->nb_samples; i++)
 				{
 					for (int ch = 0; ch < d->context->channels; ch++)
 					{
-						memcpy(out_data + (sample_data_size * (i * 2 + ch)), d->decoded_frame->data[ch] + sample_data_size * i, sample_data_size);
+						frame_data_set(out_frame, pPesPkt->av_type, 0x01, pPesPkt->dts, pPesPkt->pts, d->decoded_frame->data[ch] + sample_data_size * i, sample_data_size);
 					}
 				}
 
-				FRAME_DATA *out_frame = frame_data_create(pPesPkt->av_type, 0x01, pPesPkt->dts, pPesPkt->pts, out_data, out_len);
 				out_frame->channels = d->context->channels;
 				priority_queue_push(queue, out_frame, out_frame->pts / 90);
 				av_frame_unref(d->decoded_frame);

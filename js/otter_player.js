@@ -56,7 +56,7 @@ function ts_loader(c_player) {
                         this.is_can_seek = true;
                     }
 
-                    // 分段架子啊
+                    // 分段加载
                     this._loadData();
                 }
                 else {
@@ -243,8 +243,8 @@ function _player(c_player) {
 
                     // 抛弃过时帧
                     if (this.cur_video_pts > f_time) {
-                        console.log("throw:" + f_time + " this.cur_video_pts:" + this.cur_video_pts + " prt:" + this.video_frame_buffer_arr[i].dataPtr);
-                        Module._free(this.video_frame_buffer_arr[i].dataPtr);
+                        //console.log("throw:" + f_time + " this.cur_video_pts:" + this.cur_video_pts + " prt:" + this.video_frame_buffer_arr[i].dataPtr);
+                        Module._js_return_video_frame(this.c_player, this.video_frame_buffer_arr[i].frame_data_ptr);
                         this.video_frame_buffer_arr[i].time = -1;
                         continue;
                     }
@@ -277,7 +277,7 @@ function _player(c_player) {
                         imgIdx = imgIdx + 4;
                         j = j + 3;
                     }
-                    Module._free(dataPtr);
+                    Module._js_return_video_frame(this.c_player, this.video_frame_buffer_arr[min_idx].frame_data_ptr);
                     this.canvas_ctx.putImageData(imgData, 0, 0);
                     this.cur_video_pts = f_time;
                     this.last_dis_time = now;
@@ -322,11 +322,12 @@ function _player(c_player) {
             var jframePtr = Module._js_poll_frame(this.c_player);
 
             if (jframePtr == 0) {
-				console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> zero");
+				//console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> zero");
                 break;
             }
 
             var frame_item = new Object();
+            frame_item.frame_data_ptr = jframePtr;
 
             // 数据长度
             frame_item.len = Module.HEAPU32[jframePtr >> 2];
@@ -349,15 +350,15 @@ function _player(c_player) {
                 let targe_index = this.video_frame_count % this.video_frame_buffer_arr.length;
                 if(this.video_frame_buffer_arr[targe_index] == undefined){
                     var f_data = this.canvas_ctx.createImageData(this.canvasElem.width, this.canvasElem.height);
-                    this.video_frame_buffer_arr[targe_index] = { data: f_data, time: -1, dataPtr: 0 };
+                    this.video_frame_buffer_arr[targe_index] = { data: f_data, time: -1, dataPtr: 0, frame_data_ptr: jframePtr };
                 }
 
                 if (this.video_frame_buffer_arr[targe_index].time != -1) {
-                    console.log("overwrite:" + this.video_frame_buffer_arr[targe_index].time + " this.cur_video_pts:" + this.cur_video_pts + " prt:" + this.video_frame_buffer_arr[targe_index].dataPtr);
-                    Module._free(this.video_frame_buffer_arr[targe_index].dataPtr);
+                    Module._js_return_video_frame(this.c_player, this.video_frame_buffer_arr[targe_index].frame_data_ptr);
                     this.video_frame_buffer_arr[targe_index].time = -1;
                 }
-
+                
+                this.video_frame_buffer_arr[targe_index].frame_data_ptr = jframePtr;
 				this.video_frame_buffer_arr[targe_index].dataPtr = frame_item.dataPtr;
 				this.video_frame_buffer_arr[targe_index].time = frame_item.cur_pts;
 				this.video_frame_count++;
@@ -376,7 +377,6 @@ function _player(c_player) {
                 jframe_arr[audio_frame_count] = frame_item;
                 audio_frame_count++;
             }
-            Module._free(jframePtr);
         }
 		
         if (audio_frame_count == 0) {
@@ -403,7 +403,9 @@ function _player(c_player) {
                 }
             }
             idx += frame_count;
-            Module._free(frame_item.dataPtr);
+
+            // 处理完成，归还帧
+            Module._js_return_audio_frame(this.c_player, frame_item.frame_data_ptr);
         }
 
         var source = this.audio_ctx.createBufferSource();

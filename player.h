@@ -32,6 +32,8 @@ typedef struct OTTER_PLAYER
 	PLAY_STATUS status;                 // 状态
 	int display_width;                  // 显示宽
 	int display_height;                 // 显示高
+	FRAME_DATA_POOL *audio_pes_pool;               // 帧数据池
+	FRAME_DATA_POOL *video_pes_pool;               // 帧数据池
 	FRAME_DATA_POOL *audio_pool;               // 帧数据池
 	FRAME_DATA_POOL *video_pool;               // 帧数据池
 	pthread_t ts_demux_thread;          // ts解封装线程

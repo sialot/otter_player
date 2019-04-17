@@ -40,7 +40,7 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 	p->ts_pkt_buffer = NULL;
 
 	// 创建音频帧池
-	FRAME_DATA_POOL *audio_pool = frame_data_pool_create(512);
+	FRAME_DATA_POOL *audio_pool = frame_data_pool_create(256);
 	if (audio_pool == NULL)
 	{
 		return NULL;
@@ -48,12 +48,28 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 	p->audio_pool = audio_pool;
 
 	// 创建视频帧池
-	FRAME_DATA_POOL *video_pool = frame_data_pool_create(512);
+	FRAME_DATA_POOL *video_pool = frame_data_pool_create(256);
 	if (video_pool == NULL)
 	{
 		return NULL;
 	}
 	p->video_pool = video_pool;
+
+	// 创建音频帧池
+	FRAME_DATA_POOL *audio_pes_pool = frame_data_pool_create(256);
+	if (audio_pes_pool == NULL)
+	{
+		return NULL;
+	}
+	p->audio_pes_pool = audio_pes_pool;
+
+	// 创建视频帧池
+	FRAME_DATA_POOL *video_pes_pool = frame_data_pool_create(256);
+	if (video_pes_pool == NULL)
+	{
+		return NULL;
+	}
+	p->video_pes_pool = video_pes_pool;
 
 	BLOCK_QUEUE *ts_queue = block_queue_create(1);
 	if (ts_queue == NULL)
@@ -172,7 +188,7 @@ int _create_demuxer(OTTER_PLAYER * p)
 		return -1;
 	}
 
-	TS_DEMUXER *demuxer = ts_demuxer_create(p->audio_pool, p->video_pool);
+	TS_DEMUXER *demuxer = ts_demuxer_create(p->audio_pes_pool, p->video_pes_pool);
 	if (demuxer == NULL)
 	{
 		printf("can't create demuxer!\n");
@@ -292,7 +308,7 @@ void * _audio_decode_start(void * args)
 			p->media_start_timestamp = esFrame->pts / 90;
 		}
 		decode_frame(p->decoder_master, esFrame);
-		frame_data_pool_return(p->audio_pool, esFrame);
+		frame_data_pool_return(p->audio_pes_pool, esFrame);
 	}
 	printf("thread exit [%s]!\n", __FUNCTION__);
 	return NULL;
@@ -319,7 +335,7 @@ void * _video_decode_start(void * args)
 	{
 		FRAME_DATA *esFrame = poll_pes_pkt_by_type(p->demuxer, VIDEO);
 		decode_frame(p->decoder_master, esFrame);
-		frame_data_pool_return(p->video_pool, esFrame);
+		frame_data_pool_return(p->video_pes_pool, esFrame);
 	}
 	printf("thread exit [%s]!\n", __FUNCTION__);
 	return NULL;
@@ -355,7 +371,12 @@ EM_PORT_API(int) destroy_player(OTTER_PLAYER *p)
 	if (p->video_pool != NULL) {
 		frame_data_pool_destroy(p->video_pool);
 	}
-
+	if (p->audio_pes_pool != NULL) {
+		frame_data_pool_destroy(p->audio_pes_pool);
+	}
+	if (p->video_pes_pool != NULL) {
+		frame_data_pool_destroy(p->video_pes_pool);
+	}
 	free(p);
 	return 0;
 }

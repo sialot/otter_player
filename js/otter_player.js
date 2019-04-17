@@ -220,9 +220,9 @@ function _player(c_player) {
             return;
         }
         var now = performance.now();
-        if (this.last_start_time != 0 && (this.last_start_time + this.last_duration - now) < -5000) {
+        /*if (this.last_start_time != 0 && (this.last_start_time + this.last_duration - now) < -5000) {
             this.finish = 1;
-        }
+        }*/
 
         // ÊÓÆµäÖÈ¾
         if (this.last_start_time != 0) {

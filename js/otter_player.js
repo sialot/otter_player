@@ -485,7 +485,7 @@ var otter_player = {
             return null;
         }
         var player = new _player(c_player);
-        setTimeout(function () { player.init(width, height, canvasElem); }, 0);        
+        setTimeout(function () { player.init(width, height, canvasElem); }, 5000);
         return player;
     }
 };

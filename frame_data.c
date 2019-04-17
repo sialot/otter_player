@@ -81,16 +81,17 @@ FRAME_DATA * frame_data_pool_borrow(FRAME_DATA_POOL * p)
 		printf("pool is empty. process failed! \n");
 		return NULL;
 	}
-
 	return f;
 }
 
 // 还帧
 int frame_data_pool_return(FRAME_DATA_POOL *p, FRAME_DATA * f)
 {
+	_init_frame_data(f);
+
 	// 按帧数据空间从大到小排序
 	priority_queue_push(p->queue, f, 104857600 - f->data_buffer->size);
-	_init_frame_data(f);
+
 	return 0;
 }
 

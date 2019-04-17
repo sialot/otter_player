@@ -155,8 +155,8 @@ int fileRead(char *filePath, char *outPath) {
 
 	size_t rs = 0;
 
-	FRAME_DATA_POOL *audio_pool = frame_data_pool_create(1024);
-	FRAME_DATA_POOL *video_pool = frame_data_pool_create(1024);
+	FRAME_DATA_POOL *audio_pool = frame_data_pool_create(5000);
+	FRAME_DATA_POOL *video_pool = frame_data_pool_create(5000);
 
 	TS_DEMUXER *d = ts_demuxer_create(audio_pool, video_pool);
 	DECODER_MASTER *m = decoder_master_create(240, 160, audio_pool, video_pool);

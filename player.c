@@ -40,7 +40,7 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 	p->ts_pkt_buffer = NULL;
 
 	// 创建音频帧池
-	FRAME_DATA_POOL *audio_pool = frame_data_pool_create(256);
+	FRAME_DATA_POOL *audio_pool = frame_data_pool_create(512);
 	if (audio_pool == NULL)
 	{
 		return NULL;
@@ -48,7 +48,7 @@ EM_PORT_API(OTTER_PLAYER *) create_player(int display_width, int display_height)
 	p->audio_pool = audio_pool;
 
 	// 创建视频帧池
-	FRAME_DATA_POOL *video_pool = frame_data_pool_create(200);
+	FRAME_DATA_POOL *video_pool = frame_data_pool_create(512);
 	if (video_pool == NULL)
 	{
 		return NULL;
